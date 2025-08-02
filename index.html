@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rifas Sucre</title>
+    <!-- Agrega esta meta tag para offline -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="theme-color" content="#3498db">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="manifest" href="./manifest.json">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div id="acceso-container" class="container">
+    <h1>Rifas Sucre</h1>
+    <div class="input-group">
+        <input type="text" id="codigo-acceso" placeholder="Código de acceso (8 dígitos)" maxlength="8">
+        <button id="btn-acceder">Acceder</button>
+    </div>
+    <div class="button-group">
+       
+        <button id="btn-superusuario">Superusuario</button>
+        <button id="btn-contacto">Contacto <i class="fab fa-whatsapp"></i></button>
+        <button id="btn-tutorial" onclick="window.open('https://www.youtube.com/watch?v=5fPG_L41tSo', '_blank')">
+            <i class="fas fa-graduation-cap"></i> Tutorial
+        </button>
+    </div>
+</div>
+
+        <div id="main-container" class="container hidden">
+            <div class="header">
+                <h1 id="app-title">Rifas Sucre</h1>
+                <div class="rifa-activa" id="rifa-activa-info"></div>
+                <div class="menu">
+                    <button id="btn-rifas"><i class="fas fa-ticket-alt"></i> Rifas</button>
+                    <button id="btn-clientes"><i class="fas fa-users"></i> Clientes</button>
+                    <button id="btn-respaldo"><i class="fas fa-database"></i> Respaldo</button>
+                    <button id="btn-seguridad" class="hidden"><i class="fas fa-lock"></i> Seguridad</button>
+                    <button id="btn-cambiar-nombre"><i class="fas fa-edit"></i> Cambiar Nombre</button>
+                    <button id="btn-salir"><i class="fas fa-sign-out-alt"></i> Salir</button>
+                </div>
+            </div>
+
+            <div id="rifas-section" class="content-section">
+                <!-- Contenido de Rifas -->
+            </div>
+
+            <div id="clientes-section" class="content-section hidden">
+                <!-- Contenido de Clientes -->
+            </div>
+
+            <div id="respaldo-section" class="content-section hidden">
+                <!-- Contenido de Respaldo -->
+            </div>
+
+            <div id="seguridad-section" class="content-section hidden">
+                <!-- Contenido de Seguridad -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Superusuario -->
+    <div id="superusuario-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Acceso Superusuario</h2>
+            <input type="password" id="superusuario-clave" placeholder="Clave de superusuario">
+            <button id="btn-superusuario-acceder">Acceder</button>
+        </div>
+    </div>
+
+    <!-- Modal de Cuadrícula Completa -->
+    <div id="cuadricula-modal" class="modal hidden">
+        <div class="modal-content full-grid">
+            <span class="close-modal">&times;</span>
+            <h2 id="modal-rifa-title"></h2>
+            <div class="filtros">
+                <button class="filtro-btn active" data-filtro="todos">Todos</button>
+                <button class="filtro-btn" data-filtro="disponibles">Disponibles</button>
+                <button class="filtro-btn" data-filtro="apartados">Apartados</button>
+                <button class="filtro-btn" data-filtro="pagados">Pagados</button>
+                <button id="descargar-cuadricula"><i class="fas fa-download"></i> Descargar Imagen</button>
+                <div class="tamanio-cuadros">
+                    <label for="tamanio-cuadros">Tamaño cuadros:</label>
+                    <input type="range" id="tamanio-cuadros" min="20" max="60" value="40" step="5">
+                    <span id="tamanio-valor">40px</span>
+                </div>
+            </div>
+            <div id="cuadricula-completa" class="cuadricula-container"></div>
+        </div>
+    </div>
+
+    <!-- Modal para cambiar nombre del programa -->
+    <div id="nombre-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h2>Cambiar Nombre del Programa</h2>
+        <div class="form-group">
+            <label for="nuevo-nombre">Nuevo nombre:</label>
+            <input type="text" id="nuevo-nombre" placeholder="Ej: Rifas Mi Negocio">
+        </div>
+        <button id="btn-guardar-nombre">Guardar</button>
+    </div>
+</div>
+
+    <!-- Modal de Cliente -->
+    <div id="cliente-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2 id="cliente-modal-title">Nuevo Cliente</h2>
+            <div class="form-group">
+                <label for="cliente-nombre">Nombre:</label>
+                <input type="text" id="cliente-nombre" placeholder="Nombre completo">
+            </div>
+            <div class="form-group">
+                <label for="cliente-telefono">Teléfono:</label>
+                <input type="text" id="cliente-telefono" placeholder="Ej: +584245244171">
+            </div>
+            <div class="form-group">
+                <label for="cliente-numeros">Números (separados por comas):</label>
+                <input type="text" id="cliente-numeros" placeholder="Ej: 001,005,010">
+            </div>
+            <div class="form-group">
+                <label for="cliente-estado">Estado:</label>
+                <select id="cliente-estado">
+                    <option value="apartado">Apartado</option>
+                    <option value="pagado">Pagado</option>
+                </select>
+            </div>
+            <button id="btn-guardar-cliente">Guardar</button>
+        </div>
+    </div>
+
+    <!-- Modal de Mensaje Plantilla -->
+<div id="plantilla-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h2>Plantillas de Mensaje</h2>
+        
+        <div class="tab-container">
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="whatsapp">WhatsApp</button>
+                <button class="tab-btn" data-tab="rezagados">Rezagados</button>
+            </div>
+            
+            <div class="tab-content active" id="whatsapp-tab">
+                <h3>Plantilla WhatsApp</h3>
+                <textarea id="plantilla-mensaje" rows="10"></textarea>
+            </div>
+            
+            <div class="tab-content" id="rezagados-tab">
+                <h3>Plantilla Rezagados</h3>
+                <textarea id="plantilla-rezagados" rows="10"></textarea>
+            </div>
+        </div>
+        
+        <button id="btn-guardar-plantilla">Guardar Plantillas</button>
+    </div>
+</div>
+
+    <!-- Modal de Rifa -->
+    <div id="rifa-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2 id="rifa-modal-title">Nueva Rifa</h2>
+            <div class="form-group">
+                <label for="rifa-nombre">Nombre:</label>
+                <input type="text" id="rifa-nombre" placeholder="Nombre de la rifa">
+            </div>
+            <div class="form-group">
+                <label for="rifa-total">Total de números:</label>
+                <input type="number" id="rifa-total" min="1" placeholder="Ej: 100">
+            </div>
+            <div class="form-group">
+                <label for="rifa-columnas">Columnas:</label>
+                <input type="number" id="rifa-columnas" min="1" placeholder="Ej: 10">
+            </div>
+            <div class="form-group">
+            <label for="rifa-por-grilla">Números por grilla:</label>
+            <input type="number" id="rifa-por-grilla" min="1" placeholder="Ej: 25">
+        </div>
+        <div class="form-group">
+            <label for="rifa-precio">Precio por número:</label>
+            <input type="number" id="rifa-precio" min="1" placeholder="Ej: 100" step="any">
+        </div>
+        <button id="btn-guardar-rifa">Guardar</button>
+        </div>
+    </div>
+
+    <!-- Modal de Seguridad -->
+    <div id="seguridad-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Generar Código de Acceso</h2>
+            <div class="form-group">
+                <label for="codigo-duracion">Duración (días):</label>
+                <input type="number" id="codigo-duracion" min="1" value="1">
+            </div>
+            <button id="btn-generar-codigo">Generar Código</button>
+            <div id="codigo-generado-container" class="hidden">
+                <p>Código generado:</p>
+                <div id="codigo-generado" class="codigo-box"></div>
+                <p>Este código es de un solo uso y expirará después del tiempo especificado.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación -->
+    <div id="confirmacion-modal" class="modal hidden">
+        <div class="modal-content small">
+            <h2 id="confirmacion-titulo"></h2>
+            <p id="confirmacion-mensaje"></p>
+            <div class="confirmacion-botones">
+                <button id="confirmacion-si">Sí</button>
+                <button id="confirmacion-no">No</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Plantilla de Ticket -->
+    <div id="plantilla-ticket-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Plantilla de Ticket</h2>
+            <div class="form-group">
+                <label for="plantilla-ticket-titulo">Título del Ticket:</label>
+                <input type="text" id="plantilla-ticket-titulo" placeholder="Ej: TICKET DE RIFA">
+            </div>
+            <div class="form-group">
+                <label for="plantilla-ticket-mensaje">Mensaje (usa {variables}):</label>
+                <textarea id="plantilla-ticket-mensaje" rows="10" placeholder="Ej: Cliente: {nombre}\nNúmeros: {numeros}"></textarea>
+<small>Variables disponibles: {nombre}, {rifa}, {numeros}, {estado}, {fecha}, {total}, {pagado}, {deuda}, {hora}</small>
+            </div>
+            <button id="btn-guardar-plantilla-ticket">Guardar Plantilla</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script> 
+    <script src="install.js"></script>
+</body>
+</html>
