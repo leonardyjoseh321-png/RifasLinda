@@ -286,6 +286,11 @@ button i {
     color: #333;
 }
 
+.abonado {
+    background-color: #e67e22;  /* Color naranja */
+    color: white;
+}
+
 .pagado {
     background-color: #2ecc71;
     color: white;
@@ -392,6 +397,7 @@ button i {
 
 .cliente-acciones {
     display: flex;
+    flex-wrap: wrap; /* Permite que los elementos se envuelvan a la siguiente línea */
     gap: 5px;
     margin-top: 5px;
 }
@@ -399,6 +405,17 @@ button i {
 .cliente-acciones button {
     padding: 3px 8px;
     font-size: 12px;
+    flex: 1 0 calc(50% - 10px); /* Hace que cada botón ocupe aproximadamente la mitad del espacio */
+    min-width: 100px; /* Ancho mínimo para que no se vean demasiado pequeños */
+    box-sizing: border-box; /* Asegura que el padding no afecte el ancho calculado */
+}
+
+/* Estilos específicos para pantallas más grandes */
+@media (min-width: 768px) {
+    .cliente-acciones button {
+        flex: 1 0 auto; /* Vuelve al comportamiento original en pantallas grandes */
+        min-width: auto;
+    }
 }
 
 .buscador {
@@ -1020,4 +1037,70 @@ button i {
 
 .cliente-acciones button:nth-child(1):hover {
     background-color: #8e44ad !important;
+}
+
+/* Estilos para el botón de factura */
+.cliente-acciones button:nth-child(5) {  /* Ajusta este número según posición */
+    background-color: #16a085 !important;
+}
+
+.cliente-acciones button:nth-child(5):hover {
+    background-color: #1abc9c !important;
+}
+
+/* Estilos para la vista previa de impresión */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    #factura-impresion, #factura-impresion * {
+        visibility: visible;
+    }
+    #factura-impresion {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+    }
+}
+
+/* Estilo para el botón de plantilla factura */
+#btn-plantilla-factura {
+    background-color: #16a085;
+}
+
+#btn-plantilla-factura:hover {
+    background-color: #1abc9c;
+}
+
+#btn-plantilla-factura i {
+    margin-right: 8px;
+}
+
+/* Agrega esto al final de tu styles.css */
+#manual-content h3 {
+    color: #2c3e50;
+    margin-top: 20px;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #eee;
+}
+
+#manual-content h4 {
+    color: #3498db;
+    margin-top: 15px;
+    margin-bottom: 8px;
+}
+
+#manual-content ul, #manual-content ol {
+    margin-left: 20px;
+    margin-bottom: 15px;
+}
+
+#manual-content li {
+    margin-bottom: 5px;
+}
+
+#manual-content strong {
+    color: #2c3e50;
 }
