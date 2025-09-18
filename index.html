@@ -27,9 +27,9 @@
        
         <button id="btn-superusuario">Superusuario</button>
         <button id="btn-contacto">Contacto <i class="fab fa-whatsapp"></i></button>
-        <button id="btn-tutorial" onclick="window.open('https://www.youtube.com/watch?v=5fPG_L41tSo', '_blank')">
-            <i class="fas fa-graduation-cap"></i> Tutorial
-        </button>
+        <button id="btn-manual">
+    <i class="fas fa-book"></i> Manual
+</button>
     </div>
 </div>
 
@@ -37,14 +37,16 @@
             <div class="header">
                 <h1 id="app-title">Rifas Sucre</h1>
                 <div class="rifa-activa" id="rifa-activa-info"></div>
-                <div class="menu">
-                    <button id="btn-rifas"><i class="fas fa-ticket-alt"></i> Rifas</button>
-                    <button id="btn-clientes"><i class="fas fa-users"></i> Clientes</button>
-                    <button id="btn-respaldo"><i class="fas fa-database"></i> Respaldo</button>
-                    <button id="btn-seguridad" class="hidden"><i class="fas fa-lock"></i> Seguridad</button>
-                    <button id="btn-cambiar-nombre"><i class="fas fa-edit"></i> Cambiar Nombre</button>
-                    <button id="btn-salir"><i class="fas fa-sign-out-alt"></i> Salir</button>
-                </div>
+               <div class="menu">
+    <button id="btn-rifas"><i class="fas fa-ticket-alt"></i> Rifas</button>
+    <button id="btn-clientes"><i class="fas fa-users"></i> Clientes</button>
+    <button id="btn-respaldo"><i class="fas fa-database"></i> Respaldo</button>
+    <button id="btn-seguridad" class="hidden"><i class="fas fa-lock"></i> Seguridad</button>
+    <button id="btn-cambiar-nombre"><i class="fas fa-edit"></i> Cambiar Nombre</button>
+    <button id="btn-plantilla-factura"><i class="fas fa-file-invoice"></i> Plantilla Factura</button>
+    <button id="btn-clientes-permanentes"><i class="fas fa-address-book"></i> Clientes Permanentes</button>
+    <button id="btn-salir"><i class="fas fa-sign-out-alt"></i> Salir</button>
+</div>
             </div>
 
             <div id="rifas-section" class="content-section">
@@ -75,23 +77,35 @@
         </div>
     </div>
 
+<!-- Modal del Manual -->
+<div id="manual-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 800px; max-height: 90vh;">
+        <span class="close-modal">&times;</span>
+        <h2>Manual de Usuario - Sistema de Gestión de Rifas</h2>
+        <div id="manual-content" style="overflow-y: auto; max-height: 80vh; padding-right: 10px;">
+            <!-- El contenido se insertará aquí con JavaScript -->
+        </div>
+    </div>
+</div>
+
     <!-- Modal de Cuadrícula Completa -->
     <div id="cuadricula-modal" class="modal hidden">
         <div class="modal-content full-grid">
             <span class="close-modal">&times;</span>
             <h2 id="modal-rifa-title"></h2>
             <div class="filtros">
-                <button class="filtro-btn active" data-filtro="todos">Todos</button>
-                <button class="filtro-btn" data-filtro="disponibles">Disponibles</button>
-                <button class="filtro-btn" data-filtro="apartados">Apartados</button>
-                <button class="filtro-btn" data-filtro="pagados">Pagados</button>
-                <button id="descargar-cuadricula"><i class="fas fa-download"></i> Descargar Imagen</button>
-                <div class="tamanio-cuadros">
-                    <label for="tamanio-cuadros">Tamaño cuadros:</label>
-                    <input type="range" id="tamanio-cuadros" min="20" max="60" value="40" step="5">
-                    <span id="tamanio-valor">40px</span>
-                </div>
-            </div>
+    <button class="filtro-btn active" data-filtro="todos">Todos</button>
+    <button class="filtro-btn" data-filtro="disponibles">Disponibles</button>
+    <button class="filtro-btn" data-filtro="apartados">Apartados</button>
+    <button class="filtro-btn" data-filtro="abonados">Abonados</button>
+    <button class="filtro-btn" data-filtro="pagados">Pagados</button>
+    <button id="descargar-cuadricula"><i class="fas fa-download"></i> Descargar Imagen</button>
+    <div class="tamanio-cuadros">
+        <label for="tamanio-cuadros">Tamaño cuadros:</label>
+        <input type="range" id="tamanio-cuadros" min="20" max="60" value="40" step="5">
+        <span id="tamanio-valor">40px</span>
+    </div>
+</div>
             <div id="cuadricula-completa" class="cuadricula-container"></div>
         </div>
     </div>
@@ -136,6 +150,49 @@
             <button id="btn-guardar-cliente">Guardar</button>
         </div>
     </div>
+
+<div id="plantilla-factura-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h2>Plantilla de Factura</h2>
+        <div class="form-group">
+            <label for="factura-titulo">Título:</label>
+            <input type="text" id="factura-titulo" placeholder="Ej: FACTURA DE VENTA" value="FACTURA DE VENTA">
+        </div>
+        <div class="form-group">
+            <label for="factura-encabezado">Encabezado:</label>
+            <textarea id="factura-encabezado" rows="3" placeholder="Información de tu negocio">${localStorage.getItem('nombreApp') || 'Rifas Sucre'}\nTeléfono: \nDirección: </textarea>
+        </div>
+        <div class="form-group">
+            <label for="factura-cuerpo">Cuerpo (usa {variables}):</label>
+            <textarea id="factura-cuerpo" rows="5">Cliente: {nombre}\nRifa: {rifa}\nNúmeros: {numeros}\nCantidad: {cantidad}\nPrecio unitario: {precio}\nTotal: {total}</textarea>
+            <small>Variables: {nombre}, {rifa}, {numeros}, {cantidad}, {precio}, {total}, {fecha}, {hora}</small>
+        </div>
+        <div class="form-group">
+            <label for="factura-pie">Pie de página:</label>
+            <textarea id="factura-pie" rows="3" placeholder="Mensaje final">¡Gracias por su compra!\nVálido como factura</textarea>
+        </div>
+        <button id="btn-guardar-plantilla-factura">Guardar Plantilla</button>
+    </div>
+</div>
+
+<!-- Modal de Confirmación de Impresión -->
+<div id="imprimir-factura-modal" class="modal hidden">
+    <div class="modal-content small">
+        <h2>Imprimir Factura</h2>
+        <div class="form-group">
+            <label for="tamano-impresion">Tamaño de impresión:</label>
+            <select id="tamano-impresion">
+                <option value="58">58mm (Ticket pequeño)</option>
+                <option value="80" selected>80mm (Factura estándar)</option>
+            </select>
+        </div>
+        <div class="confirmacion-botones">
+            <button id="btn-imprimir-factura" style="background-color: #27ae60;">Imprimir</button>
+            <button id="btn-cancelar-impresion" style="background-color: #e74c3c;">Cancelar</button>
+        </div>
+    </div>
+</div>
 
     <!-- Modal de Mensaje Plantilla -->
 <div id="plantilla-modal" class="modal hidden">
@@ -240,6 +297,39 @@
             <button id="btn-guardar-plantilla-ticket">Guardar Plantilla</button>
         </div>
     </div>
+
+<!-- Modal para ver/editar clientes permanentes -->
+<div id="clientes-permanentes-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 800px;">
+        <span class="close-modal">&times;</span>
+        <h2>Base de Datos de Clientes Permanentes</h2>
+        
+        <div class="form-group">
+            <input type="text" id="buscar-cliente-permanente" placeholder="Buscar por nombre, teléfono o número..." style="width: 100%;">
+        </div>
+        
+        <div style="max-height: 500px; overflow-y: auto; margin-bottom: 20px;">
+            <table id="tabla-clientes-permanentes" style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background-color: #f2f2f2;">
+                        <th style="padding: 10px; text-align: left;">N° Cliente</th>
+                        <th style="padding: 10px; text-align: left;">Nombre</th>
+                        <th style="padding: 10px; text-align: left;">Teléfono</th>
+                        <th style="padding: 10px; text-align: left;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="lista-clientes-permanentes">
+                    <!-- Aquí se cargarán los clientes -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="button-group">
+            <button id="btn-exportar-clientes"><i class="fas fa-file-export"></i> Guardar Clientes</button>
+            <button id="btn-importar-clientes"><i class="fas fa-file-import"></i> Restaurar Clientes</button>
+        </div>
+    </div>
+</div>
 
     <script src="script.js"></script> 
     <script src="install.js"></script>
