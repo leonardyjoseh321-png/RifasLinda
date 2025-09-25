@@ -2,6 +2,7 @@
 
 
 
+
 // Configuración de IndexedDB
 const DB_NAME = 'RifasSucreDB';
 const DB_VERSION = 6; // Incrementa cuando hagas cambios
@@ -206,20 +207,33 @@ async function obtenerCodigosActivos() {
 
 async function liberarCodigo(codigo) {
     try {
-        const dispositivoId = obtenerIdDispositivo();
+        console.log('Intentando liberar código:', codigo);
+        
         const resultado = await supabaseRequest(`codigos_acceso?codigo=eq.${codigo}&select=*`);
         
-        if (resultado.length > 0 && resultado[0].dispositivo_id === dispositivoId) {
-            await supabaseRequest(`codigos_acceso?codigo=eq.${codigo}`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                    dispositivo_id: null
-                })
-            });
-            console.log('Código liberado:', codigo);
+        if (resultado.length > 0) {
+            const codigoObj = resultado[0];
+            
+            // Verificar si el código está siendo usado por algún dispositivo
+            if (codigoObj.dispositivo_id) {
+                await supabaseRequest(`codigos_acceso?codigo=eq.${codigo}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                        dispositivo_id: null,
+                        ultimo_uso: new Date().toISOString()
+                    })
+                });
+                console.log('✅ Código liberado exitosamente:', codigo);
+                return true;
+            } else {
+                console.log('Código no estaba en uso');
+                return true; // Considerar éxito aunque no estuviera en uso
+            }
         }
+        return false;
     } catch (error) {
-        console.error('Error al liberar código:', error);
+        console.error('❌ Error al liberar código:', error);
+        throw error;
     }
 }
 
@@ -464,6 +478,16 @@ let clientesPermanentes = [];
 let paginaActualClientesPermanentes = 1;
 const clientesPermanentesPorPagina = 20;
 
+// Variables para Google Drive
+let googleAccessToken = null;
+let googleUserEmail = null;
+const GOOGLE_CLIENT_ID = '1089898770635-bpcf5c9v4ddo0d1ljas3kfsiki6ktvj0.apps.googleusercontent.com';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+// NUEVO: Variables para verificación de expiración
+let ultimaVerificacion = null;
+const INTERVALO_VERIFICACION = 12 * 60 * 60 * 1000; // 12 horas
+
 // Configuración de Supabase
 const SUPABASE_URL = 'https://cnybagckrosizntlafip.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNueWJhZ2Nrcm9zaXpudGxhZmlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTE0OTYsImV4cCI6MjA3Mzc4NzQ5Nn0.m5rsYhD66yyqOTf3N32qXUzaXTwTnPmNRM-Ie09T1Sc';
@@ -598,6 +622,26 @@ document.getElementById('btn-manual').addEventListener('click', function() {
     document.getElementById('manual-modal').classList.remove('hidden');
 });
 
+// Verificar que todos los elementos del DOM existan
+function verificarElementosDOM() {
+    const elementosRequeridos = [
+        'acceso-container', 'main-container', 'codigo-acceso', 'btn-acceder',
+        'btn-superusuario', 'btn-contacto', 'btn-rifas', 'btn-clientes',
+        'btn-respaldo', 'btn-seguridad', 'btn-salir', 'rifas-section',
+        'clientes-section', 'respaldo-section', 'seguridad-section',
+        'rifa-activa-info', 'btn-cambiar-nombre', 'nombre-modal', 'app-title'
+    ];
+    
+    elementosRequeridos.forEach(id => {
+        if (!document.getElementById(id)) {
+            console.warn(`Elemento con ID '${id}' no encontrado en el DOM`);
+        }
+    });
+}
+
+// Llamar esta función después de que el DOM esté cargado
+document.addEventListener('DOMContentLoaded', verificarElementosDOM);
+
 async function initPersistentStorage() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -700,7 +744,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         await initPersistentStorage();
         await migrarDatosExistentes();
         await cargarDatos();
-        await inicializarConfiguracionPorDefecto(); // Nueva línea
+        await inicializarConfiguracionPorDefecto();
+        
+        // NUEVO: Iniciar verificación periódica
+        iniciarVerificacionPeriodica();
+        
+        // Verificar elementos del DOM
+        verificarElementosDOM();
+        
         configurarEventos();
         
         // Verificar si ya tiene acceso
@@ -708,16 +759,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (tieneAcceso || superusuarioActivo) {
             accesoContainer.classList.add('hidden');
             mainContainer.classList.remove('hidden');
-            // Asegurar que los elementos existan antes de mostrarlos
             actualizarInfoRifaActiva();
             mostrarSeccion('rifas');
+            
+            // NUEVO: Verificar expiración inmediatamente
+            setTimeout(() => verificarEstadoCodigo(), 1000);
         }
     } catch (error) {
         console.error('Error en inicialización:', error);
         alert('Error al cargar la aplicación. Recarga la página.');
     }
 });
-
 
 async function cargarDatos() {
     try {
@@ -877,23 +929,66 @@ async function verificarAccesoPersistente() {
     }
 }
 
-
+// Función para liberar código desde el botón
+async function liberarCodigoAcceso() {
+    const codigo = codigoAccesoInput.value.trim();
+    
+    if (!codigo) {
+        alert('Ingrese un código de acceso para liberar');
+        return;
+    }
+    
+    if (codigo.length !== 8) {
+        alert('El código debe tener 8 dígitos');
+        return;
+    }
+    
+    try {
+        mostrarLoading('Liberando código...');
+        
+        const liberado = await liberarCodigo(codigo);
+        
+        ocultarLoading();
+        
+        if (liberado) {
+            alert('✅ Código liberado exitosamente. Ahora puedes usarlo en otro dispositivo.');
+            codigoAccesoInput.value = ''; // Limpiar el campo
+        } else {
+            alert('❌ No se pudo liberar el código. Verifica que el código sea correcto.');
+        }
+    } catch (error) {
+        ocultarLoading();
+        console.error('Error al liberar código:', error);
+        alert('❌ Error al liberar el código. Intenta nuevamente.');
+    }
+}
 
 function mostrarModalClientesPermanentes() {
     const modal = document.getElementById('clientes-permanentes-modal');
     modal.classList.remove('hidden');
-    paginaActualClientesPermanentes = 1; // Resetear a la primera página
+    paginaActualClientesPermanentes = 1;
     cargarClientesPermanentes();
     
-    // Configurar buscador
+    // Configurar buscador - CÓDIGO CORREGIDO
     document.getElementById('buscar-cliente-permanente').addEventListener('input', (e) => {
         const termino = e.target.value.toLowerCase();
         const filas = document.querySelectorAll('#lista-clientes-permanentes tr');
         
         // Mostrar/ocultar filas según el término de búsqueda
         filas.forEach(fila => {
-            const textoFila = fila.textContent.toLowerCase();
-            fila.style.display = textoFila.includes(termino) ? '' : 'none';
+            const celdas = fila.querySelectorAll('td');
+            if (celdas.length >= 3) {
+                const numeroCliente = celdas[0].textContent.toLowerCase();
+                const nombre = celdas[1].querySelector('input').value.toLowerCase();
+                const telefono = celdas[2].querySelector('input').value.toLowerCase();
+                
+                // Buscar en todos los campos
+                const coincide = numeroCliente.includes(termino) || 
+                               nombre.includes(termino) || 
+                               telefono.includes(termino);
+                
+                fila.style.display = coincide ? '' : 'none';
+            }
         });
     });
     
@@ -1029,6 +1124,25 @@ async function actualizarClientePermanente(id, nombre, telefono) {
         const index = clientesPermanentes.findIndex(c => c.id === id);
         if (index === -1) return;
         
+        // Normalizar el teléfono para comparación
+        const telefonoNormalizado = normalizarTelefono(telefono);
+        const telefonoActualNormalizado = normalizarTelefono(clientesPermanentes[index].telefono);
+        
+        // Verificar si el nuevo número ya existe en OTRO cliente (no en el actual)
+        if (telefonoNormalizado !== telefonoActualNormalizado) {
+            const clienteExistente = clientesPermanentes.find(c => 
+                c.id !== id && normalizarTelefono(c.telefono) === telefonoNormalizado
+            );
+            
+            if (clienteExistente) {
+                alert(`❌ Ya existe otro cliente permanente con este número de teléfono:\n\n` +
+                      `Cliente: ${clienteExistente.nombre}\n` +
+                      `N°: ${clienteExistente.numeroCliente}\n` +
+                      `Teléfono: ${clienteExistente.telefono}`);
+                return; // Detener la actualización
+            }
+        }
+        
         // Guardar el número de cliente antes de actualizar
         const numeroCliente = clientesPermanentes[index].numeroCliente;
         
@@ -1058,7 +1172,7 @@ async function actualizarClientePermanente(id, nombre, telefono) {
         // Actualizar variables locales
         clientes = nuevosClientes;
         
-        alert('Cliente actualizado en ambas bases de datos');
+        alert('✅ Cliente actualizado en ambas bases de datos');
         cargarClientesPermanentes();
         actualizarListaClientes();
     } catch (error) {
@@ -1213,30 +1327,74 @@ async function verificarCodigoGuardado(codigo) {
 
 function configurarEventos() {
     // Acceso
-    btnAcceder.addEventListener('click', validarAcceso);
-    btnSuperusuario.addEventListener('click', mostrarModalSuperusuario);
-    btnContacto.addEventListener('click', () => {
-        window.open('https://wa.me/584245244171', '_blank');
-    });
+    if (btnAcceder) btnAcceder.addEventListener('click', validarAcceso);
     
-    // Manual de usuario
-    document.getElementById('btn-manual').addEventListener('click', function() {
-        document.getElementById('manual-content').innerHTML = manualContent;
-        document.getElementById('manual-modal').classList.remove('hidden');
-    });
+    // NUEVO: Configurar buscador de números ganadores
+    configurarBuscadorGanador();
+    if (btnSuperusuario) btnSuperusuario.addEventListener('click', mostrarModalSuperusuario);
+    
+    // NUEVO: Botón para liberar código
+    const btnLiberarCodigo = document.getElementById('btn-liberar-codigo');
+    if (btnLiberarCodigo) {
+        btnLiberarCodigo.addEventListener('click', liberarCodigoAcceso);
+    }
+    
+    // Contacto con verificación
+    if (btnContacto) {
+        btnContacto.addEventListener('click', () => {
+            window.open('https://wa.me/584245244171', '_blank');
+        });
+    }
+    
+    // Manual de usuario - con verificación de existencia
+    const btnManual = document.getElementById('btn-manual');
+    if (btnManual) {
+        btnManual.addEventListener('click', function() {
+            const manualContentElement = document.getElementById('manual-content');
+            const manualModal = document.getElementById('manual-modal');
+            
+            if (manualContentElement && manualModal) {
+                manualContentElement.innerHTML = manualContent;
+                manualModal.classList.remove('hidden');
+            }
+        });
+    }
 
     // Menú principal
-    btnRifas.addEventListener('click', () => mostrarSeccion('rifas'));
-    btnClientes.addEventListener('click', () => mostrarSeccion('clientes'));
-    btnRespaldo.addEventListener('click', () => mostrarSeccion('respaldo'));
-    btnSeguridad.addEventListener('click', () => mostrarSeccion('seguridad'));
-    btnSalir.addEventListener('click', salir);
-    btnCambiarNombre.addEventListener('click', mostrarModalCambiarNombre);
-    document.getElementById('btn-guardar-nombre').addEventListener('click', guardarNuevoNombre);
+    if (btnRifas) btnRifas.addEventListener('click', () => mostrarSeccion('rifas'));
+    if (btnClientes) btnClientes.addEventListener('click', () => mostrarSeccion('clientes'));
+    if (btnRespaldo) btnRespaldo.addEventListener('click', () => mostrarSeccion('respaldo'));
+    if (btnSeguridad) btnSeguridad.addEventListener('click', () => mostrarSeccion('seguridad'));
+    if (btnSalir) btnSalir.addEventListener('click', salir);
+    if (btnCambiarNombre) btnCambiarNombre.addEventListener('click', mostrarModalCambiarNombre);
     
-    document.getElementById('btn-guardar-plantilla-ticket').addEventListener('click', guardarPlantillaTicket);
-    document.getElementById('btn-plantilla-factura').addEventListener('click', mostrarModalPlantillaFactura);
-    document.getElementById('btn-guardar-plantilla-factura').addEventListener('click', guardarPlantillaFactura);
+    const btnGuardarNombre = document.getElementById('btn-guardar-nombre');
+    if (btnGuardarNombre) {
+        btnGuardarNombre.addEventListener('click', guardarNuevoNombre);
+    }
+
+    const btnGuardarPlantillaTicket = document.getElementById('btn-guardar-plantilla-ticket');
+    if (btnGuardarPlantillaTicket) {
+        btnGuardarPlantillaTicket.addEventListener('click', guardarPlantillaTicket);
+    }
+    
+    const btnPlantillaFactura = document.getElementById('btn-plantilla-factura');
+    if (btnPlantillaFactura) {
+        btnPlantillaFactura.addEventListener('click', mostrarModalPlantillaFactura);
+    }
+    
+// NUEVO: Configurar evento del modal de expiración
+    const btnEntendido = document.getElementById('btn-entendido-expirado');
+    if (btnEntendido) {
+        btnEntendido.addEventListener('click', () => {
+            document.getElementById('expirado-modal').classList.add('hidden');
+        });
+    }
+
+    const btnGuardarPlantillaFactura = document.getElementById('btn-guardar-plantilla-factura');
+    if (btnGuardarPlantillaFactura) {
+        btnGuardarPlantillaFactura.addEventListener('click', guardarPlantillaFactura);
+    }
 
     // Modales
     document.querySelectorAll('.close-modal').forEach(btn => {
@@ -1244,32 +1402,460 @@ function configurarEventos() {
             btn.closest('.modal').classList.add('hidden');
         });
     });
+
+    // Configurar evento de cierre para el modal C Flash
+document.querySelector('#c-flash-modal .close-modal').addEventListener('click', () => {
+    document.getElementById('c-flash-modal').classList.add('hidden');
+});
    
-    document.getElementById('btn-clientes-permanentes').addEventListener('click', mostrarModalClientesPermanentes);
+    const btnClientesPermanentes = document.getElementById('btn-clientes-permanentes');
+    if (btnClientesPermanentes) {
+        btnClientesPermanentes.addEventListener('click', mostrarModalClientesPermanentes);
+    }
 
     // Superusuario
-    document.getElementById('btn-superusuario-acceder').addEventListener('click', validarSuperusuario);
+    const btnSuperusuarioAcceder = document.getElementById('btn-superusuario-acceder');
+    if (btnSuperusuarioAcceder) {
+        btnSuperusuarioAcceder.addEventListener('click', validarSuperusuario);
+    }
     
     // Eventos de teclado
-    codigoAccesoInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') validarAcceso();
-    });
+    if (codigoAccesoInput) {
+        codigoAccesoInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') validarAcceso();
+        });
+    }
     
-    document.getElementById('superusuario-clave').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') validarSuperusuario();
-    });
+    const superusuarioClave = document.getElementById('superusuario-clave');
+    if (superusuarioClave) {
+        superusuarioClave.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') validarSuperusuario();
+        });
+    }
 
     // Liberar código al cerrar la página
+    // NO liberar código automáticamente al cerrar la página/app
+// Solo se liberará cuando el usuario presione explícitamente "Salir"
 window.addEventListener('beforeunload', () => {
-    const codigoAcceso = sessionStorage.getItem('codigo_acceso_actual');
-    if (codigoAcceso) {
-        // Usamos sendBeacon para asegurar que la solicitud se complete incluso al cerrar
-        navigator.sendBeacon(`${SUPABASE_URL}/rest/v1/codigos_acceso?codigo=eq.${codigoAcceso}`, 
-            JSON.stringify({dispositivo_id: null})
-        );
-    }
+    // Este evento se mantiene vacío para evitar liberación automática
+    console.log('Página cerrada - No se libera código automáticamente');
 });
 
+// Nuevo evento para detectar cuando la app se cierra en modo PWA
+window.addEventListener('pagehide', () => {
+    console.log('App ocultada - No se libera código automáticamente');
+});
+    configurarEventosGoogleDrive();
+}
+
+// Configurar eventos de Google Drive
+function configurarEventosGoogleDrive() {
+    const btnGoogleBackup = document.getElementById('btn-google-drive-backup');
+    const btnGoogleRestore = document.getElementById('btn-google-drive-restore');
+    const btnConnectGoogle = document.getElementById('btn-connect-google');
+    const googleEmailInput = document.getElementById('google-email');
+    
+    if (btnGoogleBackup) {
+        btnGoogleBackup.addEventListener('click', iniciarGoogleDriveBackup);
+    }
+    
+    if (btnGoogleRestore) {
+        btnGoogleRestore.addEventListener('click', iniciarGoogleDriveRestore);
+    }
+    
+    if (btnConnectGoogle) {
+        btnConnectGoogle.addEventListener('click', iniciarAutenticacionGoogle);
+    }
+    
+    // Cargar email guardado si existe
+    const savedEmail = localStorage.getItem('google_user_email');
+    if (savedEmail && googleEmailInput) {
+        googleEmailInput.value = savedEmail;
+        googleUserEmail = savedEmail;
+    }
+    
+    // Verificar si ya hay un token válido
+    const savedToken = localStorage.getItem('google_access_token');
+    const tokenExpiry = localStorage.getItem('google_token_expiry');
+    
+    if (savedToken && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry)) {
+        googleAccessToken = savedToken;
+        actualizarEstadoGoogleDrive('Conectado a Google Drive', 'success');
+    }
+}
+
+// Iniciar autenticación con Google
+function iniciarAutenticacionGoogle() {
+    const emailInput = document.getElementById('google-email');
+    if (emailInput) {
+        const email = emailInput.value.trim();
+        if (!email) {
+            alert('Por favor ingresa tu correo electrónico de Google');
+            return;
+        }
+        
+        localStorage.setItem('google_user_email', email);
+        googleUserEmail = email;
+    }
+    
+    // Iniciar flujo de autenticación OAuth2
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        `client_id=${GOOGLE_CLIENT_ID}` +
+        `&redirect_uri=${encodeURIComponent(window.location.origin)}` +
+        `&response_type=token` +
+        `&scope=${encodeURIComponent(GOOGLE_SCOPES)}` +
+        `&include_granted_scopes=true` +
+        `&state=google_drive_auth`;
+    
+    // Abrir ventana de autenticación
+    const authWindow = window.open(authUrl, 'GoogleAuth', 'width=500,height=600');
+    
+    // Verificar periódicamente si la ventana se cerró
+    const checkWindow = setInterval(() => {
+        if (authWindow.closed) {
+            clearInterval(checkWindow);
+            verificarAutenticacionGoogle();
+        }
+    }, 500);
+}
+
+// Verificar autenticación de Google
+function verificarAutenticacionGoogle() {
+    const token = localStorage.getItem('google_access_token');
+    if (token) {
+        googleAccessToken = token;
+        actualizarEstadoGoogleDrive('Conectado a Google Drive', 'success');
+    } else {
+        actualizarEstadoGoogleDrive('No conectado. Haz clic en "Conectar con Google"', 'error');
+    }
+}
+
+// Actualizar estado de Google Drive en la UI
+function actualizarEstadoGoogleDrive(mensaje, tipo) {
+    const statusElement = document.getElementById('google-status');
+    if (statusElement) {
+        statusElement.textContent = mensaje;
+        statusElement.style.color = tipo === 'success' ? 'green' : 'red';
+    }
+}
+
+// Iniciar proceso de backup a Google Drive
+async function iniciarGoogleDriveBackup() {
+    if (!googleAccessToken) {
+        alert('Primero debes conectar con Google Drive');
+        iniciarAutenticacionGoogle();
+        return;
+    }
+    
+    try {
+        mostrarLoading('Creando respaldo en Google Drive...');
+        
+        // Crear el respaldo
+        const backupData = await crearDatosRespaldo();
+        const blob = new Blob([JSON.stringify(backupData, null, 2)], { 
+            type: 'application/json' 
+        });
+        
+        // Usar nombre fijo en lugar de nombre con fecha
+        const fileName = `respaldo_rifas_web.json`;
+        
+        // Buscar si ya existe un archivo con este nombre
+        const archivos = await listarArchivosGoogleDrive();
+        const archivoExistente = archivos.find(archivo => archivo.name === fileName);
+        
+        let fileId;
+        if (archivoExistente) {
+            // Si existe, actualizarlo (sobreescribir)
+            fileId = await actualizarArchivoGoogleDrive(archivoExistente.id, blob);
+        } else {
+            // Si no existe, crear uno nuevo
+            fileId = await subirArchivoGoogleDrive(blob, fileName);
+        }
+        
+        ocultarLoading();
+        alert(`Respaldo ${archivoExistente ? 'actualizado' : 'guardado'} exitosamente en Google Drive\n\nArchivo: ${fileName}`);
+    } catch (error) {
+        console.error('Error al guardar en Google Drive:', error);
+        ocultarLoading();
+        alert('Error al guardar en Google Drive: ' + error.message);
+    }
+}
+
+// Iniciar proceso de restauración desde Google Drive
+async function iniciarGoogleDriveRestore() {
+    if (!googleAccessToken) {
+        alert('Primero debes conectar con Google Drive');
+        iniciarAutenticacionGoogle();
+        return;
+    }
+    
+    try {
+        // Obtener lista de archivos de respaldo
+        const archivos = await listarArchivosGoogleDrive();
+        
+        if (archivos.length === 0) {
+            alert('No se encontraron respaldos en tu Google Drive');
+            return;
+        }
+        
+        // Mostrar modal para seleccionar archivo
+        mostrarModalSeleccionArchivo(archivos);
+    } catch (error) {
+        console.error('Error al listar archivos de Google Drive:', error);
+        alert('Error al acceder a Google Drive: ' + error.message);
+    }
+}
+
+// Mostrar modal para seleccionar archivo de respaldo
+function mostrarModalSeleccionArchivo(archivos) {
+    const modal = document.getElementById('google-drive-modal');
+    const content = document.getElementById('google-drive-content');
+    
+    content.innerHTML = `
+        <h3>Selecciona un respaldo para restaurar</h3>
+        <div style="max-height: 300px; overflow-y: auto;">
+            ${archivos.map(archivo => `
+                <div class="archivo-item" style="padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; position: relative;">
+                    <strong>${archivo.name}</strong>
+                    <div style="font-size: 12px; color: #666;">
+                        ${new Date(archivo.createdTime).toLocaleDateString()}
+                        <span style="font-size: 10px; color: #999;"> - ${formatFileSize(archivo.size)}</span>
+                    </div>
+                    <button class="btn-eliminar-archivo" data-id="${archivo.id}" style="position: absolute; top: 10px; right: 10px; background: #e74c3c; color: white; border: none; border-radius: 3px; padding: 3px 6px; font-size: 10px; cursor: pointer;" onclick="event.stopPropagation(); eliminarArchivoGoogleDrive('${archivo.id}', '${archivo.name}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `).join('')}
+        </div>
+        <div style="margin-top: 15px; text-align: center;">
+            <button id="btn-actualizar-lista" style="background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer;">
+                <i class="fas fa-sync-alt"></i> Actualizar Lista
+            </button>
+        </div>
+    `;
+    
+    // Configurar evento para actualizar lista
+    setTimeout(() => {
+        document.getElementById('btn-actualizar-lista').addEventListener('click', async () => {
+            try {
+                mostrarLoading('Actualizando lista...');
+                const archivosActualizados = await listarArchivosGoogleDrive();
+                modal.classList.add('hidden');
+                mostrarModalSeleccionArchivo(archivosActualizados);
+                ocultarLoading();
+            } catch (error) {
+                console.error('Error al actualizar lista:', error);
+                ocultarLoading();
+                alert('Error al actualizar la lista de archivos');
+            }
+        });
+    }, 100);
+    
+    // Agregar event listeners a los elementos de archivo
+    setTimeout(() => {
+        document.querySelectorAll('.archivo-item').forEach((item, index) => {
+            item.addEventListener('click', () => {
+                restaurarDesdeGoogleDrive(archivos[index].id);
+                modal.classList.add('hidden');
+            });
+        });
+    }, 100);
+    
+    modal.classList.remove('hidden');
+}
+
+// Subir archivo a Google Drive
+async function subirArchivoGoogleDrive(blob, fileName) {
+    const formData = new FormData();
+    formData.append('metadata', new Blob([JSON.stringify({
+        name: fileName,
+        mimeType: 'application/json',
+        parents: ['root']
+    })], { type: 'application/json' }));
+    
+    formData.append('file', blob);
+    
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${googleAccessToken}`
+        },
+        body: formData
+    });
+    
+    if (!response.ok) {
+        throw new Error('Error al subir archivo: ' + response.statusText);
+    }
+    
+    const data = await response.json();
+    return data.id;
+}
+
+// Actualizar archivo existente en Google Drive
+async function actualizarArchivoGoogleDrive(fileId, blob) {
+    const formData = new FormData();
+    formData.append('metadata', new Blob([JSON.stringify({
+        name: `respaldo_rifas_web.json`,
+        mimeType: 'application/json'
+    })], { type: 'application/json' }));
+    
+    formData.append('file', blob);
+    
+    const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${googleAccessToken}`
+        },
+        body: formData
+    });
+    
+    if (!response.ok) {
+        throw new Error('Error al actualizar archivo: ' + response.statusText);
+    }
+    
+    const data = await response.json();
+    return data.id;
+}
+
+// Listar archivos de respaldo en Google Drive - CAMBIO: buscar por "respaldo" en lugar del nombre completo
+async function listarArchivosGoogleDrive() {
+    const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files?` +
+        `q=name contains 'respaldo' and mimeType='application/json'&` +
+        `fields=files(id,name,createdTime,modifiedTime,size)&` +
+        `orderBy=createdTime desc`,
+        {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${googleAccessToken}`
+            }
+        }
+    );
+    
+    if (!response.ok) {
+        throw new Error('Error al listar archivos: ' + response.statusText);
+    }
+    
+    const data = await response.json();
+    return data.files;
+}
+
+// Descargar y restaurar archivo desde Google Drive
+async function restaurarDesdeGoogleDrive(fileId) {
+    try {
+        mostrarLoading('Restaurando desde Google Drive...');
+        
+        const response = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+            {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${googleAccessToken}`
+                }
+            }
+        );
+        
+        if (!response.ok) {
+            throw new Error('Error al descargar archivo: ' + response.statusText);
+        }
+        
+        const backupData = await response.json();
+        
+        // RESTAURAR LOS DATOS DIRECTAMENTE (reemplaza la línea que da error)
+        rifas = backupData.rifas || [];
+        clientes = backupData.clientes || [];
+        clientesPermanentes = backupData.clientesPermanentes || [];
+        codigosValidos = backupData.codigos || backupData.codigosUsados || [];
+        codigosUsados = backupData.codigosUsados || [];
+        rifaActiva = backupData.rifaActiva || null;
+        
+        // Restaurar configuración si existe
+        if (backupData.configuracion) {
+            try {
+                const tx = db.transaction(['configuracion'], 'readwrite');
+                const store = tx.objectStore('configuracion');
+                await store.clear();
+                
+                for (const configItem of backupData.configuracion) {
+                    await store.put(configItem);
+                }
+            } catch (error) {
+                console.error('Error al restaurar configuración:', error);
+            }
+        }
+        
+        await guardarTodo();
+        
+        ocultarLoading();
+        alert('Respaldo restaurado exitosamente desde Google Drive');
+        mostrarSeccion('rifas');
+    } catch (error) {
+        console.error('Error al restaurar desde Google Drive:', error);
+        ocultarLoading();
+        alert('Error al restaurar desde Google Drive: ' + error.message);
+    }
+}
+
+// Función para mostrar loading
+function mostrarLoading(mensaje) {
+    let loadingDiv = document.getElementById('loading-descarga');
+    if (!loadingDiv) {
+        loadingDiv = document.createElement('div');
+        loadingDiv.id = 'loading-descarga';
+        document.body.appendChild(loadingDiv);
+    }
+    
+    loadingDiv.innerHTML = `
+        <div style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+        ">
+            <div style="font-size: 20px; margin-bottom: 20px;">
+                <i class="fas fa-spinner fa-spin"></i> ${mensaje}
+            </div>
+            <div style="font-size: 14px;">Por favor espere...</div>
+        </div>
+    `;
+}
+
+// Función para ocultar loading
+function ocultarLoading() {
+    const loadingDiv = document.getElementById('loading-descarga');
+    if (loadingDiv) {
+        loadingDiv.remove();
+    }
+}
+
+// Crear datos de respaldo (ya existente, pero la agregamos por si acaso)
+async function crearDatosRespaldo() {
+    try {
+        const configuracion = await obtenerTodosDatos('configuracion');
+        const codigos = await obtenerTodosDatos('codigos');
+        
+        return {
+            rifas,
+            clientes,
+            clientesPermanentes, 
+            codigos,
+            codigosUsados,
+            configuracion,
+            rifaActiva,
+            fechaRespaldo: new Date().toISOString()
+        };
+    } catch (error) {
+        console.error('Error al crear respaldo:', error);
+        throw error;
+    }
 }
 
 function mostrarModalCambiarNombre() {
@@ -1349,6 +1935,90 @@ function obtenerIdDispositivo() {
     return id;
 }
 
+// Función para verificar expiración localmente
+function verificarExpiracionLocal(codigo) {
+    try {
+        // Buscar en códigos usados primero (almacenados localmente)
+        const codigoGuardado = codigosValidos.find(c => c.codigo === codigo);
+        
+        if (codigoGuardado) {
+            const ahora = new Date();
+            const expiracion = new Date(codigoGuardado.expiracion);
+            return ahora <= expiracion;
+        }
+        
+        // Si no está en local, necesitamos verificar en Supabase
+        return null;
+    } catch (error) {
+        console.error('Error en verificación local:', error);
+        return null;
+    }
+}
+
+// Función principal de verificación
+async function verificarEstadoCodigo() {
+    const codigo = sessionStorage.getItem('codigo_acceso_actual') || 
+                  localStorage.getItem('ultimo_acceso');
+    
+    if (!codigo || superusuarioActivo) return true;
+    
+    // Verificar localmente primero
+    const estadoLocal = verificarExpiracionLocal(codigo);
+    
+    if (estadoLocal === false) {
+        // Código expirado localmente
+        mostrarModalExpirado();
+        return false;
+    } else if (estadoLocal === null) {
+        // No hay información local concluyente, verificar en Supabase
+        try {
+            const esValido = await verificarCodigoEnDB(codigo);
+            if (!esValido) {
+                mostrarModalExpirado();
+                return false;
+            }
+            return true;
+        } catch (error) {
+            console.error('Error al verificar en Supabase:', error);
+            // En caso de error, permitir uso temporal
+            return true;
+        }
+    }
+    
+    return true;
+}
+
+// Función para mostrar modal de expiración
+function mostrarModalExpirado() {
+    accesoContainer.classList.remove('hidden');
+    mainContainer.classList.add('hidden');
+    
+    const modal = document.getElementById('expirado-modal');
+    modal.classList.remove('hidden');
+    
+    // Configurar evento del botón
+    document.getElementById('btn-entendido-expirado').onclick = () => {
+        modal.classList.add('hidden');
+        codigoAccesoInput.value = '';
+        codigoAccesoInput.focus();
+    };
+}
+
+// Verificación periódica
+function iniciarVerificacionPeriodica() {
+    // Verificar inmediatamente al cargar
+    setTimeout(() => verificarEstadoCodigo(), 1000);
+    
+    // Verificar cada 12 horas
+    setInterval(() => verificarEstadoCodigo(), INTERVALO_VERIFICACION);
+    
+    // Verificar al cambiar de pestaña/ventana
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            verificarEstadoCodigo();
+        }
+    });
+}
 
 function mostrarModalSuperusuario() {
     superusuarioModal.classList.remove('hidden');
@@ -1503,10 +2173,10 @@ function mostrarRifas() {
         const disponibles = rifa.totalNumeros - apartados - abonados - pagados;
         
         rifaEstado.innerHTML = `
-            <span>Disponibles: ${disponibles}</span>
-            <span>Apartados: ${apartados}</span>
-            <span>Abonados: ${abonados}</span>
-            <span>Pagados: ${pagados}</span>
+            <span>Disp: ${disponibles}</span>
+    <span>Apartados: ${apartados}</span>
+    <span>Abon: ${abonados}</span>
+    <span>Pagados: ${pagados}</span>
         `;
         
         const rifaAcciones = document.createElement('div');
@@ -1529,6 +2199,15 @@ function mostrarRifas() {
             mostrarCuadriculaCompleta(rifa);
         });
         
+        // NUEVO: Botón CSV con menú desplegable
+        const btnCSV = document.createElement('button');
+        btnCSV.textContent = 'CSV';
+        btnCSV.style.backgroundColor = '#9b59b6';
+        btnCSV.addEventListener('click', (e) => {
+            e.stopPropagation();
+            mostrarOpcionesCSV(rifa);
+        });
+        
         const btnEditar = document.createElement('button');
         btnEditar.textContent = 'Editar';
         btnEditar.addEventListener('click', () => mostrarModalEditarRifa(rifa));
@@ -1547,6 +2226,7 @@ function mostrarRifas() {
         
         rifaAcciones.appendChild(btnActivar);
         rifaAcciones.appendChild(btnCuadricula);
+        rifaAcciones.appendChild(btnCSV); // NUEVO: Agregar botón CSV
         rifaAcciones.appendChild(btnEditar);
         rifaAcciones.appendChild(btnEliminar);
         
@@ -1585,8 +2265,14 @@ function mostrarModalEditarRifa(rifa) {
 }
 
 async function guardarNuevaRifa() {
+    // NUEVO: Verificar expiración antes de crear rifa
+    const codigoValido = await verificarEstadoCodigo();
+    if (!codigoValido) {
+        return; // Detener si el código expiró
+    }
+    
     const nombre = document.getElementById('rifa-nombre').value.trim();
-const total = parseInt(document.getElementById('rifa-total').value);
+    const total = parseInt(document.getElementById('rifa-total').value);
 const columnas = parseInt(document.getElementById('rifa-columnas').value);
 const porGrilla = parseInt(document.getElementById('rifa-por-grilla').value);
 const precio = parseFloat(document.getElementById('rifa-precio').value) || 0;
@@ -2149,10 +2835,11 @@ function mostrarClientes() {
     header.innerHTML = `
         <h2>Clientes - ${rifa.nombre}</h2>
         <div class="button-group">
-            <button id="btn-nuevo-cliente"><i class="fas fa-plus"></i> Nuevo Cliente</button>
-            <button id="btn-plantilla-mensaje"><i class="fas fa-envelope"></i> Mensaje Plantilla</button>
-            <button id="btn-plantilla-ticket"><i class="fas fa-ticket-alt"></i> Plantilla Ticket</button>
-        </div>
+    <button id="btn-nuevo-cliente"><i class="fas fa-plus"></i> Nuevo Cliente</button>
+    <button id="btn-plantilla-mensaje"><i class="fas fa-envelope"></i> Mensaje Plantilla</button>
+    <button id="btn-plantilla-ticket"><i class="fas fa-ticket-alt"></i> Plantilla Ticket</button>
+    <button id="btn-c-flash"><i class="fas fa-table"></i> C Flash</button>
+</div>
     `;
     clientesSection.appendChild(header);
     
@@ -2202,6 +2889,7 @@ function mostrarClientes() {
     document.getElementById('btn-nuevo-cliente').addEventListener('click', mostrarModalNuevoCliente);
     document.getElementById('btn-plantilla-mensaje').addEventListener('click', mostrarModalPlantilla);
     document.getElementById('btn-plantilla-ticket').addEventListener('click', mostrarModalPlantillaTicket);
+    document.getElementById('btn-c-flash').addEventListener('click', mostrarPlanillaCFlash);
     document.getElementById('buscador-clientes').addEventListener('input', filtrarClientes);
     
     actualizarListaClientes();
@@ -2289,24 +2977,77 @@ function actualizarListaClientes() {
 
 function filtrarClientes() {
     const busqueda = document.getElementById('buscador-clientes').value.toLowerCase();
-    const clientesItems = document.querySelectorAll('.cliente-item');
     
     if (!busqueda) {
-        clientesItems.forEach(item => item.style.display = 'block');
+        // Si no hay búsqueda, mostrar paginación normal
+        paginaActualClientes = 1;
+        actualizarListaClientes();
         return;
     }
     
-    clientesItems.forEach(item => {
-        const nombre = item.querySelector('.cliente-nombre').textContent.toLowerCase();
-        const telefono = item.querySelector('.cliente-telefono').textContent.toLowerCase();
-        const numeros = item.querySelector('.cliente-numeros').textContent.toLowerCase();
+    // Buscar en TODOS los clientes de la rifa activa
+    const rifa = rifas.find(r => r.id === rifaActiva);
+    if (!rifa) return;
+    
+    const clientesFiltrados = clientes
+        .filter(c => c.rifaId === rifaActiva)
+        .filter(cliente => {
+            const nombre = cliente.nombre.toLowerCase();
+            const telefono = cliente.telefono.toLowerCase();
+            const numeros = cliente.numeros.toLowerCase();
+            
+            return nombre.includes(busqueda) || 
+                   telefono.includes(busqueda) || 
+                   numeros.includes(busqueda);
+        })
+        .sort((a, b) => parseInt(a.numeroCliente.slice(1)) - parseInt(b.numeroCliente.slice(1)));
+    
+    // Mostrar resultados de búsqueda (sin paginación)
+    const listaClientes = document.querySelector('.clientes-lista');
+    const paginacionContainer = document.querySelector('.paginacion');
+    listaClientes.innerHTML = '';
+    paginacionContainer.innerHTML = '';
+    
+    if (clientesFiltrados.length === 0) {
+        listaClientes.innerHTML = '<p>No se encontraron clientes que coincidan con la búsqueda.</p>';
+    } else {
+        clientesFiltrados.forEach(cliente => {
+            const clienteItem = crearElementoCliente(cliente);
+            listaClientes.appendChild(clienteItem);
+        });
         
-        if (nombre.includes(busqueda) || telefono.includes(busqueda) || numeros.includes(busqueda)) {
-            item.style.display = 'block';
-        } else {
-            item.style.display = 'none';
-        }
-    });
+        // Mostrar contador de resultados
+        const resultadosInfo = document.createElement('div');
+        resultadosInfo.style.cssText = `
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-size: 14px;
+            text-align: center;
+        `;
+        resultadosInfo.textContent = `Se encontraron ${clientesFiltrados.length} cliente(s) - Búsqueda: "${busqueda}"`;
+        listaClientes.appendChild(resultadosInfo);
+        
+        // Botón para limpiar búsqueda
+        const btnLimpiar = document.createElement('button');
+        btnLimpiar.textContent = 'Limpiar Búsqueda';
+        btnLimpiar.style.cssText = `
+            margin-top: 10px;
+            padding: 8px 15px;
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        `;
+        btnLimpiar.addEventListener('click', () => {
+            document.getElementById('buscador-clientes').value = '';
+            paginaActualClientes = 1;
+            actualizarListaClientes();
+        });
+        listaClientes.appendChild(btnLimpiar);
+    }
 }
 
 function mostrarModalNuevoCliente() {
@@ -2913,31 +3654,80 @@ function enviarWhatsApp(cliente) {
     const rifa = rifas.find(r => r.id === cliente.rifaId);
     const plantilla = localStorage.getItem('rifasSucre_plantilla') || '';
     
-    // Limpiar los números para mostrar (quitar los estados)
+    // Separar números por estado
+    const numerosPagados = [];
+    const numerosApartados = [];
+    const numerosAbonados = [];
+    
+    cliente.numeros.split(',').forEach(numCompleto => {
+        const [num, estado, abono] = numCompleto.includes(':') ? 
+            numCompleto.split(':') : 
+            [numCompleto, cliente.estado, '0'];
+        
+        const numFormateado = num.padStart(3, '0');
+        const precioNumero = rifa ? (rifa.precio || 0) : 0;
+        const abonoActual = parseFloat(abono || 0);
+        
+        if (estado === 'pagado' || abonoActual >= precioNumero) {
+            numerosPagados.push(numFormateado);
+        } else if (abonoActual > 0 && abonoActual < precioNumero) {
+            numerosAbonados.push(numFormateado);
+        } else if (estado === 'apartado') {
+            numerosApartados.push(numFormateado);
+        }
+    });
+    
+    // CALCULAR DEUDA TOTAL
+    let deudaTotal = 0;
+    cliente.numeros.split(',').forEach(numCompleto => {
+        const [num, estado, abono] = numCompleto.includes(':') ? 
+            numCompleto.split(':') : 
+            [numCompleto, cliente.estado, '0'];
+        
+        const abonoActual = parseFloat(abono || 0);
+        const precioNumero = rifa ? (rifa.precio || 0) : 0;
+        
+        if (estado === 'apartado') {
+            deudaTotal += precioNumero;
+        } else if (estado === 'abonado') {
+            deudaTotal += (precioNumero - abonoActual);
+        }
+        // Los números pagados no generan deuda
+    });
+    
+    // Crear mensaje detallado para {estado}
+    let detalleEstados = '';
+    
+    if (numerosPagados.length > 0) {
+        detalleEstados += `✅ Pagados: ${numerosPagados.join(', ')}\n`;
+    }
+    
+    if (numerosAbonados.length > 0) {
+        detalleEstados += `💰 Abonados: ${numerosAbonados.join(', ')}\n`;
+    }
+    
+    if (numerosApartados.length > 0) {
+        detalleEstados += `⏳ Pendientes: ${numerosApartados.join(', ')}\n`;
+    }
+    
+    // Limpiar los números para mostrar en el mensaje principal
     const numerosLimpios = cliente.numeros.split(',').map(num => {
         return num.includes(':') ? num.split(':')[0] : num;
     }).join(', ');
     
     // CALCULAR ESTADO GENERAL CORRECTO
-    let numerosPagados = 0;
-    let numerosApartados = 0;
     const totalNumeros = cliente.numeros.split(',').length;
-    
-    cliente.numeros.split(',').forEach(numCompleto => {
-        const estado = numCompleto.includes(':') ? numCompleto.split(':')[1] : cliente.estado;
-        if (estado === 'pagado') numerosPagados++;
-        if (estado === 'apartado') numerosApartados++;
-    });
-    
     let estadoGeneral = 'mixto';
-    if (numerosPagados === totalNumeros) estadoGeneral = 'pagado';
-    if (numerosApartados === totalNumeros) estadoGeneral = 'apartado';
+    if (numerosPagados.length === totalNumeros) estadoGeneral = 'pagado';
+    if (numerosApartados.length === totalNumeros) estadoGeneral = 'apartado';
     
     let mensaje = plantilla
         .replace(/{nombre}/g, cliente.nombre)
         .replace(/{rifa}/g, rifa.nombre)
         .replace(/{numeros}/g, numerosLimpios)
-        .replace(/{estado}/g, estadoGeneral);  // ← ESTADO CORREGIDO
+        .replace(/{estado}/g, detalleEstados)
+        .replace(/{fecha}/g, new Date().toLocaleDateString())
+        .replace(/{deuda}/g, deudaTotal.toFixed(2));  // ← NUEVA LÍNEA
     
     const url = `https://wa.me/${cliente.telefono}?text=${encodeURIComponent(mensaje)}`;
     window.open(url, '_blank');
@@ -2962,23 +3752,58 @@ function generarTicket(cliente) {
     `;
 
     // CALCULAR ESTADOS INDIVIDUALES DE LOS NÚMEROS
-    let numerosPagados = 0;
-    let numerosApartados = 0;
+    let numerosPagados = [];
+    let numerosApartados = [];
+    let numerosAbonados = [];
     
-    const numerosHTML = cliente.numeros.split(',').map(numCompleto => {
-        const [num, estadoIndividual] = numCompleto.includes(':') ? 
+    cliente.numeros.split(',').forEach(numCompleto => {
+        const [num, estadoIndividual, abono] = numCompleto.includes(':') ? 
             numCompleto.split(':') : 
-            [numCompleto, cliente.estado];
+            [numCompleto, cliente.estado, '0'];
             
-        // Contar números por estado
-        if (estadoIndividual === 'pagado') numerosPagados++;
-        if (estadoIndividual === 'apartado') numerosApartados++;
+        const numFormateado = num.padStart(3, '0');
+        const precioNumero = rifa ? (rifa.precio || 0) : 0;
+        const abonoActual = parseFloat(abono || 0);
+        
+        // Clasificar números por estado
+        if (estadoIndividual === 'pagado' || abonoActual >= precioNumero) {
+            numerosPagados.push(numFormateado);
+        } else if (abonoActual > 0 && abonoActual < precioNumero) {
+            numerosAbonados.push(numFormateado);
+        } else if (estadoIndividual === 'apartado') {
+            numerosApartados.push(numFormateado);
+        }
+    });
+
+    const numerosHTML = cliente.numeros.split(',').map(numCompleto => {
+        const [num, estadoIndividual, abono] = numCompleto.includes(':') ? 
+            numCompleto.split(':') : 
+            [numCompleto, cliente.estado, '0'];
+            
+        const numFormateado = num.padStart(3, '0');
+        const precioNumero = rifa ? (rifa.precio || 0) : 0;
+        const abonoActual = parseFloat(abono || 0);
+        
+        let estadoVisual = estadoIndividual;
+        let colorFondo = '#f1c40f'; // Amarillo por defecto (apartado)
+        let colorTexto = '#333';
+        
+        if (estadoIndividual === 'pagado' || abonoActual >= precioNumero) {
+            estadoVisual = 'pagado';
+            colorFondo = '#2ecc71'; // Verde
+            colorTexto = 'white';
+        } else if (abonoActual > 0 && abonoActual < precioNumero) {
+            estadoVisual = 'abonado';
+            colorFondo = '#e67e22'; // Naranja
+            colorTexto = 'white';
+        }
             
         return `<span style="display: inline-block; margin: 2px; padding: 2px 5px; 
                 border-radius: 3px; border: 1px solid #ddd; 
-                background: ${estadoIndividual === 'pagado' ? '#2ecc71' : '#f1c40f'}; 
-                color: ${estadoIndividual === 'pagado' ? 'white' : '#333'}">
-                ${num}
+                background: ${colorFondo}; 
+                color: ${colorTexto}"
+                title="Número ${numFormateado} - ${estadoVisual}">
+                ${numFormateado}
                 </span>`;
     }).join('');
 
@@ -2986,9 +3811,24 @@ function generarTicket(cliente) {
     let mensajeTicket = localStorage.getItem('plantillaTicketMensaje') || 
         'Cliente: {nombre}\nTeléfono: {telefono}\nNúmeros: {numeros}\nEstado: {estado}\nFecha: {fecha}\nTotal: {total}\nPagado: {pagado}\nDeuda: {deuda}\nHora: {hora}';
 
+    // Crear texto detallado de estados
+    let detalleEstados = '';
+    
+    if (numerosPagados.length > 0) {
+        detalleEstados += `✅ Pagados: ${numerosPagados.join(', ')}\n`;
+    }
+    
+    if (numerosAbonados.length > 0) {
+        detalleEstados += `💰 Abonados: ${numerosAbonados.join(', ')}\n`;
+    }
+    
+    if (numerosApartados.length > 0) {
+        detalleEstados += `⏳ Pendientes: ${numerosApartados.join(', ')}\n`;
+    }
+
     // Limpiar los números para mostrar en el mensaje (quitar los estados)
     const numerosLimpios = cliente.numeros.split(',').map(num => {
-        return num.includes(':') ? num.split(':')[0] : num;
+        return num.includes(':') ? num.split(':')[0].padStart(3, '0') : num.padStart(3, '0');
     }).join(', ');
 
     // Calcular montos
@@ -2996,20 +3836,28 @@ function generarTicket(cliente) {
     const total = totalNumeros * (rifa?.precio || 0);
 
     // Calcular pagado y deuda
-    let pagado = numerosPagados * (rifa?.precio || 0);
+    let pagado = numerosPagados.length * (rifa?.precio || 0);
+    // Sumar abonos de números abonados
+    pagado += numerosAbonados.reduce((sum, num) => {
+        const numData = cliente.numeros.split(',').find(n => n.includes(num));
+        const abono = numData && numData.includes(':') ? parseFloat(numData.split(':')[2] || 0) : 0;
+        return sum + abono;
+    }, 0);
+    
     let deuda = total - pagado;
 
-    // DETERMINAR ESTADO GENERAL (si todos son pagados = "pagado", si todos apartados = "apartado", si mezclados = "mixto")
+    // DETERMINAR ESTADO GENERAL
     let estadoGeneral = 'mixto';
-    if (numerosPagados === totalNumeros) estadoGeneral = 'pagado';
-    if (numerosApartados === totalNumeros) estadoGeneral = 'apartado';
+    if (numerosPagados.length === totalNumeros) estadoGeneral = 'pagado';
+    if (numerosApartados.length === totalNumeros && numerosAbonados.length === 0) estadoGeneral = 'apartado';
 
+    // Reemplazar {estado} con el detalle completo
     mensajeTicket = mensajeTicket
         .replace(/{nombre}/g, cliente.nombre)
         .replace(/{telefono}/g, cliente.telefono)
         .replace(/{rifa}/g, rifa.nombre)
         .replace(/{numeros}/g, numerosLimpios)
-        .replace(/{estado}/g, estadoGeneral)  // ← ESTADO CORREGIDO
+        .replace(/{estado}/g, detalleEstados)
         .replace(/{fecha}/g, new Date().toLocaleDateString())
         .replace(/{total}/g, total.toFixed(2))
         .replace(/{pagado}/g, pagado.toFixed(2))
@@ -3069,7 +3917,7 @@ function generarTicket(cliente) {
             flex-direction: column;
             z-index: 9999;
             padding: 20px;
-            overflow-y: auto; /* Permite hacer scroll si el contenido es muy largo */
+            overflow-y: auto;
         `;
         
         // Contenedor para los botones (fijo en la parte inferior)
@@ -3099,6 +3947,19 @@ function generarTicket(cliente) {
         
         imageContainer.appendChild(img);
         
+        // NUEVO: Botón para enviar por WhatsApp
+        const whatsappButton = document.createElement('button');
+        whatsappButton.textContent = 'Enviar por WhatsApp';
+        whatsappButton.style.cssText = `
+            padding: 10px 20px;
+            background: #25D366;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        `;
+        
         // Botón para copiar al portapapeles
         const copyButton = document.createElement('button');
         copyButton.textContent = 'Copiar al Portapapeles';
@@ -3111,6 +3972,25 @@ function generarTicket(cliente) {
             font-size: 16px;
             cursor: pointer;
         `;
+        
+        // Botón para cerrar
+        const closeButton = document.createElement('button');
+        closeButton.textContent = 'Cerrar';
+        closeButton.style.cssText = `
+            padding: 10px 20px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        `;
+        
+        // Configurar eventos de los botones
+        whatsappButton.onclick = () => {
+            enviarTicketWhatsApp(cliente, rifa, canvas);
+            document.body.removeChild(ticketContainer);
+        };
         
         copyButton.onclick = () => {
             canvas.toBlob(blob => {
@@ -3128,24 +4008,12 @@ function generarTicket(cliente) {
             });
         };
         
-        // Botón para cerrar
-        const closeButton = document.createElement('button');
-        closeButton.textContent = 'Cerrar';
-        closeButton.style.cssText = `
-            padding: 10px 20px;
-            background: #e74c3c;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            cursor: pointer;
-        `;
-        
         closeButton.onclick = () => {
             document.body.removeChild(ticketContainer);
         };
         
         // Agregar elementos al contenedor de botones
+        buttonContainer.appendChild(whatsappButton);
         buttonContainer.appendChild(copyButton);
         buttonContainer.appendChild(closeButton);
         
@@ -3163,37 +4031,142 @@ function generarTicket(cliente) {
     });
 }
 
+// NUEVA FUNCIÓN: Enviar ticket por WhatsApp
+function enviarTicketWhatsApp(cliente, rifa, canvas) {
+    // Obtener la plantilla de WhatsApp
+    let mensajeWhatsApp = localStorage.getItem('plantillaWhatsAppTicket') || 
+        '¡Hola {nombre}! 🎫\n\nAquí tienes tu comprobante de la rifa *{rifa}*\n\nNúmeros: {numeros}\nEstado: {estado}\nTotal: {total}\n\n¡Gracias por participar! 🍀';
+
+    // Calcular información para las variables
+    const numerosLimpios = cliente.numeros.split(',').map(num => {
+        return num.includes(':') ? num.split(':')[0].padStart(3, '0') : num.padStart(3, '0');
+    }).join(', ');
+
+    const totalNumeros = cliente.numeros.split(',').length;
+    const total = totalNumeros * (rifa?.precio || 0);
+
+    // Calcular estado general
+    let estadoGeneral = 'mixto';
+    let numerosPagados = 0;
+    let numerosApartados = 0;
+
+    cliente.numeros.split(',').forEach(numCompleto => {
+        const estado = numCompleto.includes(':') ? numCompleto.split(':')[1] : cliente.estado;
+        if (estado === 'pagado') numerosPagados++;
+        if (estado === 'apartado') numerosApartados++;
+    });
+
+    if (numerosPagados === totalNumeros) estadoGeneral = 'pagado';
+    if (numerosApartados === totalNumeros) estadoGeneral = 'apartado';
+
+    // Reemplazar variables en el mensaje
+    mensajeWhatsApp = mensajeWhatsApp
+        .replace(/{nombre}/g, cliente.nombre)
+        .replace(/{rifa}/g, rifa.nombre)
+        .replace(/{numeros}/g, numerosLimpios)
+        .replace(/{estado}/g, estadoGeneral)
+        .replace(/{total}/g, total.toFixed(2))
+        .replace(/{fecha}/g, new Date().toLocaleDateString())
+        .replace(/{hora}/g, new Date().toLocaleTimeString());
+
+    // Convertir canvas a blob y crear URL
+    canvas.toBlob(blob => {
+        // Crear un formulario temporal para enviar la imagen
+        const formData = new FormData();
+        formData.append('image', blob, 'ticket_rifa.png');
+        
+        // Aquí podrías subir la imagen a un servidor si quisieras enviarla como archivo
+        // Por ahora, enviaremos solo el mensaje de texto con el ticket como imagen en el portapapeles
+        
+        // Abrir WhatsApp con el mensaje
+        const url = `https://wa.me/${cliente.telefono}?text=${encodeURIComponent(mensajeWhatsApp)}`;
+        window.open(url, '_blank');
+        
+        // Mostrar mensaje informativo
+        alert('WhatsApp abierto. El mensaje ya está listo para enviar. Puedes pegar la imagen del ticket si lo deseas.');
+    });
+}
+
 function enviarRezagados(cliente) {
     const rifa = rifas.find(r => r.id === cliente.rifaId);
     const plantilla = localStorage.getItem('rifasSucre_plantilla_rezagados') || 
                      localStorage.getItem('rifasSucre_plantilla') || 
                      '¡Hola {nombre}! Recordatorio: Tus números {numeros} en la rifa "{rifa}" están como {estado}. Por favor completa tu pago. ¡Gracias!';
     
-    // Limpiar los números para mostrar (quitar los estados)
+    // Identificar números pendientes de pago
+    const numerosPendientes = [];
+    const numerosPagados = [];
+    const numerosAbonados = [];
+    
+    cliente.numeros.split(',').forEach(numCompleto => {
+        const [num, estado, abono] = numCompleto.includes(':') ? 
+            numCompleto.split(':') : 
+            [numCompleto, cliente.estado, '0'];
+        
+        const numFormateado = num.padStart(3, '0');
+        const precioNumero = rifa ? (rifa.precio || 0) : 0;
+        const abonoActual = parseFloat(abono || 0);
+        
+        if (estado === 'pagado' || abonoActual >= precioNumero) {
+            numerosPagados.push(numFormateado);
+        } else if (abonoActual > 0 && abonoActual < precioNumero) {
+            numerosAbonados.push(numFormateado);
+            numerosPendientes.push(numFormateado);
+        } else if (estado === 'apartado') {
+            numerosPendientes.push(numFormateado);
+        }
+    });
+    
+    // CALCULAR DEUDA TOTAL
+    let deudaTotal = 0;
+    cliente.numeros.split(',').forEach(numCompleto => {
+        const [num, estado, abono] = numCompleto.includes(':') ? 
+            numCompleto.split(':') : 
+            [numCompleto, cliente.estado, '0'];
+        
+        const abonoActual = parseFloat(abono || 0);
+        const precioNumero = rifa ? (rifa.precio || 0) : 0;
+        
+        if (estado === 'apartado') {
+            deudaTotal += precioNumero;
+        } else if (estado === 'abonado') {
+            deudaTotal += (precioNumero - abonoActual);
+        }
+        // Los números pagados no generan deuda
+    });
+    
+    // Crear mensaje detallado para {estado}
+    let detalleEstados = '';
+    
+    if (numerosPagados.length > 0) {
+        detalleEstados += `✅ Pagados: ${numerosPagados.join(', ')}\n`;
+    }
+    
+    if (numerosAbonados.length > 0) {
+        detalleEstados += `💰 Abonados: ${numerosAbonados.join(', ')}\n`;
+    }
+    
+    if (numerosPendientes.length > 0) {
+        detalleEstados += `⏳ Pendientes: ${numerosPendientes.join(', ')}\n`;
+    }
+    
+    // Limpiar los números para mostrar en el mensaje principal
     const numerosLimpios = cliente.numeros.split(',').map(num => {
         return num.includes(':') ? num.split(':')[0] : num;
     }).join(', ');
     
     // CALCULAR ESTADO GENERAL CORRECTO
-    let numerosPagados = 0;
-    let numerosApartados = 0;
     const totalNumeros = cliente.numeros.split(',').length;
-    
-    cliente.numeros.split(',').forEach(numCompleto => {
-        const estado = numCompleto.includes(':') ? numCompleto.split(':')[1] : cliente.estado;
-        if (estado === 'pagado') numerosPagados++;
-        if (estado === 'apartado') numerosApartados++;
-    });
-    
     let estadoGeneral = 'mixto';
-    if (numerosPagados === totalNumeros) estadoGeneral = 'pagado';
-    if (numerosApartados === totalNumeros) estadoGeneral = 'apartado';
+    if (numerosPagados.length === totalNumeros) estadoGeneral = 'pagado';
+    if (numerosPendientes.length === totalNumeros) estadoGeneral = 'apartado';
     
     let mensaje = plantilla
         .replace(/{nombre}/g, cliente.nombre)
         .replace(/{rifa}/g, rifa.nombre)
         .replace(/{numeros}/g, numerosLimpios)
-        .replace(/{estado}/g, estadoGeneral);  // ← ESTADO CORREGIDO
+        .replace(/{estado}/g, detalleEstados)
+        .replace(/{deuda}/g, deudaTotal.toFixed(2));  // ← NUEVA LÍNEA
     
     const url = `https://wa.me/${cliente.telefono}?text=${encodeURIComponent(mensaje)}`;
     window.open(url, '_blank');
@@ -3204,18 +4177,26 @@ function mostrarModalPlantilla() {
     const plantillaWhatsApp = localStorage.getItem('rifasSucre_plantilla') || 
         '¡Hola {nombre}!\n\n' +
         'Gracias por participar en la rifa "{rifa}".\n' +
-        'Tus números son: {numeros}\n' +
-        'Estado: {estado}\n\n' +
+        'El estado de tus números es: {estado}\n\n' +
         '¡Mucha suerte!';
     
     const plantillaRezagados = localStorage.getItem('rifasSucre_plantilla_rezagados') || 
         '¡Hola {nombre}!\n\n' +
-        'Recordatorio: Tus números {numeros} en la rifa "{rifa}" están como {estado}.\n' +
+        'Recordatorio: Tus números en la rifa "{rifa}" están como {estado}.\n' +
+        'Deuda total: {deuda}$\n' +
         'Por favor completa tu pago lo antes posible.\n\n' +
         '¡Gracias por tu apoyo!';
     
+    const plantillaGanador = localStorage.getItem('rifasSucre_plantilla_ganador') || 
+        '¡FELICIDADES {nombre}! 🎉\n\n' +
+        '¡ERES EL GANADOR/A DE LA RIFA "{rifa}"! 🏆\n\n' +
+        'Número ganador: {numeroGanador}\n' +
+        'Estado: {estado}\n\n' +
+        'Por favor contáctanos para reclamar tu premio. 🎁';
+    
     document.getElementById('plantilla-mensaje').value = plantillaWhatsApp;
     document.getElementById('plantilla-rezagados').value = plantillaRezagados;
+    document.getElementById('plantilla-ganador').value = plantillaGanador;
     
     // Configurar eventos de pestañas
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -3235,9 +4216,11 @@ function mostrarModalPlantilla() {
 function guardarPlantillas() {
     const plantillaWhatsApp = document.getElementById('plantilla-mensaje').value;
     const plantillaRezagados = document.getElementById('plantilla-rezagados').value;
+    const plantillaGanador = document.getElementById('plantilla-ganador').value;
     
     localStorage.setItem('rifasSucre_plantilla', plantillaWhatsApp);
     localStorage.setItem('rifasSucre_plantilla_rezagados', plantillaRezagados);
+    localStorage.setItem('rifasSucre_plantilla_ganador', plantillaGanador);
     plantillaModal.classList.add('hidden');
     alert('Plantillas guardadas correctamente');
 }
@@ -3246,24 +4229,31 @@ function mostrarModalPlantillaTicket() {
     document.getElementById('plantilla-ticket-titulo').value = 
         localStorage.getItem('plantillaTicketTitulo') || 'TICKET DE RIFA';
     document.getElementById('plantilla-ticket-mensaje').value = 
-        localStorage.getItem('plantillaTicketMensaje') || 'Cliente: {nombre}\nTeléfono: {telefono}\nNúmeros: {numeros}\nEstado: {estado}\nFecha: {fecha}';
+        localStorage.getItem('plantillaTicketMensaje') || 'Cliente: {nombre}\nTeléfono: {telefono}\nEstado: {estado}';
+    
+    // NUEVO: Cargar plantilla de WhatsApp
+    document.getElementById('plantilla-whatsapp-mensaje').value = 
+        localStorage.getItem('plantillaWhatsAppTicket') || 'Aquí va el link de tu grupo o si prefieres agrega algunas variables o mensaje personalizado.';
     
     plantillaTicketModal.classList.remove('hidden');
 }
 
 function guardarPlantillaTicket() {
     const titulo = document.getElementById('plantilla-ticket-titulo').value.trim();
-    const mensaje = document.getElementById('plantilla-ticket-mensaje').value.trim();
+    const mensajeTicket = document.getElementById('plantilla-ticket-mensaje').value.trim();
+    const mensajeWhatsApp = document.getElementById('plantilla-whatsapp-mensaje').value.trim(); // NUEVO
     
-    if (!titulo || !mensaje) {
+    if (!titulo || !mensajeTicket || !mensajeWhatsApp) {
         alert('Por favor completa todos los campos');
         return;
     }
     
     localStorage.setItem('plantillaTicketTitulo', titulo);
-    localStorage.setItem('plantillaTicketMensaje', mensaje);
+    localStorage.setItem('plantillaTicketMensaje', mensajeTicket);
+    localStorage.setItem('plantillaWhatsAppTicket', mensajeWhatsApp); // NUEVO
+    
     plantillaTicketModal.classList.add('hidden');
-    alert('Plantilla de ticket guardada correctamente');
+    alert('Plantillas de ticket y WhatsApp guardadas correctamente');
 }
 
 function mostrarRespaldo() {
@@ -3272,13 +4262,39 @@ function mostrarRespaldo() {
         <p>Aquí puedes crear una copia de seguridad de todos tus datos o restaurar desde una copia previa.</p>
         
         <div class="respaldo-acciones">
-            <button id="btn-crear-respaldo"><i class="fas fa-save"></i> Crear Respaldo</button>
-            <button id="btn-restaurar-respaldo"><i class="fas fa-upload"></i> Restaurar Respaldo</button>
+            <button id="btn-crear-respaldo"><i class="fas fa-save"></i> Crear Respaldo Local</button>
+            <button id="btn-restaurar-respaldo"><i class="fas fa-upload"></i> Restaurar Respaldo Local</button>
+            <button id="btn-google-drive-backup"><i class="fab fa-google-drive"></i> Guardar en Google Drive</button>
+            <button id="btn-google-drive-restore"><i class="fab fa-google-drive"></i> Restaurar desde Google Drive</button>
+            <button id="btn-gestion-google-drive" style="background-color: #7f8c8d;">
+                <i class="fas fa-cog"></i> Gestionar Google Drive
+            </button>
+        </div>
+        
+        <div id="google-drive-section" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
+            <h3>Conexión con Google Drive</h3>
+            <div class="form-group">
+                <label for="google-email">Correo electrónico de Google:</label>
+                <input type="email" id="google-email" placeholder="tu.correo@gmail.com" style="width: 100%; padding: 10px;">
+            </div>
+            <button id="btn-connect-google" style="background: #4285F4; color: white;">
+                <i class="fab fa-google"></i> Conectar con Google
+            </button>
+            <div id="google-status" style="margin-top: 10px; font-size: 14px;"></div>
         </div>
     `;
     
     document.getElementById('btn-crear-respaldo').addEventListener('click', crearRespaldo);
     document.getElementById('btn-restaurar-respaldo').addEventListener('click', restaurarRespaldo);
+    
+    // Configurar eventos de Google Drive
+    configurarEventosGoogleDrive();
+    
+    // Actualizar estado de Google Drive
+    verificarAutenticacionGoogle();
+    
+// Agregar evento para el nuevo botón de gestión
+    document.getElementById('btn-gestion-google-drive').addEventListener('click', mostrarOpcionesGoogleDrive);
 }
 
 async function crearRespaldo() {
@@ -3302,7 +4318,8 @@ async function crearRespaldo() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `respaldo_rifas_sucre_${new Date().toISOString().slice(0, 10)}.json`;
+        // CAMBIO: "sucre" por "web"
+        a.download = `respaldo_rifas_web_${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(url);
         
@@ -3520,16 +4537,28 @@ function guardarDatos() {
 }
 
 function salir() {
-    // Liberar el código de acceso si existe
-    const codigoAcceso = sessionStorage.getItem('codigo_acceso_actual');
+    // Liberar el código de acceso si existe - ESTO ES LO NUEVO
+    const codigoAcceso = sessionStorage.getItem('codigo_acceso_actual') || localStorage.getItem('ultimo_acceso');
     if (codigoAcceso) {
-        liberarCodigo(codigoAcceso);
+        liberarCodigo(codigoAcceso).then(() => {
+            // Limpiar almacenamiento después de liberar el código
+            sessionStorage.removeItem('codigo_acceso_actual');
+            localStorage.removeItem('ultimo_acceso');
+            
+            // Continuar con el proceso de salida
+            completarSalida();
+        }).catch(error => {
+            console.error('Error al liberar código:', error);
+            // Continuar con salida aunque falle la liberación
+            completarSalida();
+        });
+    } else {
+        completarSalida();
     }
-    
-    // Limpiar solo la sesión actual
-    sessionStorage.removeItem('codigo_acceso_actual');
-    
-    // No limpiar el código de acceso persistente
+}
+
+function completarSalida() {
+    // Ocultar interfaz principal y mostrar acceso
     mainContainer.classList.add('hidden');
     accesoContainer.classList.remove('hidden');
     codigoAccesoInput.value = '';
@@ -3539,7 +4568,10 @@ function salir() {
         superusuarioActivo = false;
         if (superusuarioTimeout) clearTimeout(superusuarioTimeout);
     }
+    
+    console.log('Sesión cerrada y código liberado');
 }
+
 function crearElementoCliente(cliente) {
     const clienteItem = document.createElement('div');
     clienteItem.className = 'cliente-item';
@@ -3575,8 +4607,8 @@ function crearElementoCliente(cliente) {
         <span class="cliente-numero">${cliente.numeroCliente}</span>
         <span class="cliente-telefono">${cliente.telefono}</span>
         <div class="cliente-info-adicional">
-            <small>Total de nros: ${totalNumeros}</small>
-            <small>Deuda total: $${deudaTotal.toFixed(2)}</small>
+            <small>Nros: ${totalNumeros}</small>
+            <small>Deuda: $${deudaTotal.toFixed(2)}</small>
         </div>
     `;
     
@@ -3659,6 +4691,15 @@ if (item.estado === 'pagado') {
     const clienteAcciones = document.createElement('div');
 clienteAcciones.className = 'cliente-acciones';
 
+const btnAgregarNumeros = document.createElement('button');
+    btnAgregarNumeros.innerHTML = '<i class="fas fa-plus"></i> Agregar';
+    btnAgregarNumeros.style.backgroundColor = '#3498db';
+    btnAgregarNumeros.addEventListener('click', (e) => {
+        e.stopPropagation();
+        mostrarModalAgregarNumeros(cliente);
+    });
+    clienteAcciones.appendChild(btnAgregarNumeros);
+
 // Agrega el botón de imprimir factura
 const btnImprimirFactura = document.createElement('button');
 btnImprimirFactura.innerHTML = '<i class="fas fa-print"></i> Factura';
@@ -3709,12 +4750,7 @@ btnWhatsApp.innerHTML = '<i class="fab fa-whatsapp"></i> WhatsApp';
         generarTicket(cliente);
     });
     
-    const btnEditar = document.createElement('button');
-    btnEditar.innerHTML = '<i class="fas fa-edit"></i> Editar';
-    btnEditar.addEventListener('click', (e) => {
-        e.stopPropagation();
-        mostrarModalEditarCliente(cliente);
-    });
+    
     
     const btnEliminar = document.createElement('button');
 btnEliminar.textContent = 'Eliminar';
@@ -3731,7 +4767,7 @@ btnEliminar.addEventListener('click', (e) => {
     
     clienteAcciones.appendChild(btnWhatsApp);
     clienteAcciones.appendChild(btnTicket);
-    clienteAcciones.appendChild(btnEditar);
+    
     clienteAcciones.appendChild(btnEliminar);
     
     clienteItem.appendChild(clienteHeader);
@@ -3860,22 +4896,52 @@ function imprimirFactura(cliente) {
     }
 
     // Mostrar modal de confirmación de impresión
-    document.getElementById('imprimir-factura-modal').classList.remove('hidden');
+    const modal = document.getElementById('imprimir-factura-modal');
+    modal.classList.remove('hidden');
     
-    // Configurar eventos de los botones
-    document.getElementById('btn-imprimir-factura').onclick = () => {
-        generarFactura(cliente, parseInt(document.getElementById('tamano-impresion').value));
-        document.getElementById('imprimir-factura-modal').classList.add('hidden');
+    // Limpiar eventos previos para evitar duplicados
+    const btnImprimir = document.getElementById('btn-imprimir-factura');
+    const btnCancelar = document.getElementById('btn-cancelar-impresion');
+    
+    // Crear clones para eliminar event listeners anteriores
+    const newBtnImprimir = btnImprimir.cloneNode(true);
+    const newBtnCancelar = btnCancelar.cloneNode(true);
+    
+    btnImprimir.parentNode.replaceChild(newBtnImprimir, btnImprimir);
+    btnCancelar.parentNode.replaceChild(newBtnCancelar, btnCancelar);
+    
+    // Configurar nuevos eventos
+    newBtnImprimir.onclick = function() {
+        const tamano = parseInt(document.getElementById('tamano-impresion').value);
+        generarFactura(cliente, tamano);
+        modal.classList.add('hidden');
     };
     
-    document.getElementById('btn-cancelar-impresion').onclick = () => {
-        document.getElementById('imprimir-factura-modal').classList.add('hidden');
+    newBtnCancelar.onclick = function() {
+        modal.classList.add('hidden');
     };
+    
+    // Enfocar el botón de imprimir para mejor UX
+    setTimeout(() => {
+        newBtnImprimir.focus();
+    }, 100);
 }
 
 // Función para generar la factura
 function generarFactura(cliente, ancho) {
+    // Validación adicional
+    if (!cliente || !ancho) {
+        console.error('Datos inválidos para generar factura:', {cliente, ancho});
+        alert('Error: Datos inválidos para generar la factura');
+        return;
+    }
+    
     const rifa = rifas.find(r => r.id === cliente.rifaId);
+    if (!rifa) {
+        alert('No se encontró la rifa asociada al cliente');
+        return;
+    }
+    
     const cantidadNumeros = cliente.numeros.split(',').length;
     const precioUnitario = rifa.precio || 0;
     const total = cantidadNumeros * precioUnitario;
@@ -3988,3 +5054,812 @@ function generarFactura(cliente, ancho) {
 
 }
 
+function mostrarModalAgregarNumeros(cliente) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    `;
+    
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-modal" style="position: absolute; top: 15px; right: 15px; font-size: 24px; cursor: pointer; color: #7f8c8d;">&times;</span>
+            <h2>Agregar Números a ${cliente.nombre}</h2>
+            
+            <div class="form-group">
+                <label for="nuevos-numeros">Números a agregar (separados por comas o rangos):</label>
+                <input type="text" id="nuevos-numeros" placeholder="Ej: 015, 020-025, 030" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+            </div>
+            
+            <div class="form-group">
+                <label for="estado-nuevos-numeros">Estado de los nuevos números:</label>
+                <select id="estado-nuevos-numeros" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <option value="apartado">Apartado</option>
+                    <option value="pagado">Pagado</option>
+                </select>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button id="btn-agregar-numeros-confirmar" style="padding: 10px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; flex: 1;">
+                    <i class="fas fa-plus"></i> Agregar Números
+                </button>
+                <button id="btn-cancelar-agregar" style="padding: 10px 20px; background: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; flex: 1;">
+                    <i class="fas fa-times"></i> Cancelar
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Configurar eventos
+    modal.querySelector('.close-modal').addEventListener('click', () => {
+        modal.remove();
+    });
+    
+    modal.querySelector('#btn-cancelar-agregar').addEventListener('click', () => {
+        modal.remove();
+    });
+    
+    modal.querySelector('#btn-agregar-numeros-confirmar').addEventListener('click', async () => {
+        await agregarNumerosACliente(cliente, modal);
+    });
+}
+
+// NUEVA FUNCIÓN: Agregar números a cliente existente
+async function agregarNumerosACliente(cliente, modal) {
+    const nuevosNumerosInput = document.getElementById('nuevos-numeros').value.trim();
+    const estadoNuevo = document.getElementById('estado-nuevos-numeros').value;
+    
+    if (!nuevosNumerosInput) {
+        alert('Por favor ingresa los números a agregar');
+        return;
+    }
+    
+    const rifa = rifas.find(r => r.id === cliente.rifaId);
+    if (!rifa) {
+        alert('No se encontró la rifa asociada al cliente');
+        return;
+    }
+    
+    // Procesar números (soporte para rangos y comas)
+    const numerosProcesados = [];
+    const partes = nuevosNumerosInput.split(/[,.\s]+/);
+    
+    for (const parte of partes) {
+        if (!parte) continue;
+        
+        if (parte.includes('-')) {
+            const [inicioStr, finStr] = parte.split('-');
+            const inicio = parseInt(inicioStr);
+            const fin = parseInt(finStr);
+            
+            if (isNaN(inicio) || isNaN(fin)) {
+                alert(`El rango "${parte}" no es válido`);
+                return;
+            }
+            
+            if (inicio > fin) {
+                alert(`El rango "${parte}" está invertido`);
+                return;
+            }
+            
+            for (let i = inicio; i <= fin; i++) {
+                numerosProcesados.push(i.toString());
+            }
+        } else {
+            numerosProcesados.push(parte);
+        }
+    }
+    
+    // Eliminar duplicados
+    const numerosArray = [...new Set(numerosProcesados)];
+    
+    if (numerosArray.length === 0) {
+        alert('No se han ingresado números válidos');
+        return;
+    }
+    
+    // Validar números
+    for (const num of numerosArray) {
+        if (isNaN(num) || num === '') {
+            alert(`El número "${num}" no es válido`);
+            return;
+        }
+        
+        const numFormateado = parseInt(num).toString().padStart(3, '0');
+        if (parseInt(numFormateado) >= rifa.totalNumeros) {
+            alert(`El número ${numFormateado} excede el total de números de la rifa (${rifa.totalNumeros})`);
+            return;
+        }
+    }
+    
+    // Verificar disponibilidad
+    const numerosOcupados = {};
+    const clientesRifa = clientes.filter(c => c.rifaId === cliente.rifaId);
+    
+    clientesRifa.forEach(clienteRifa => {
+        clienteRifa.numeros.split(',').forEach(num => {
+            const numFormateado = parseInt(num.includes(':') ? num.split(':')[0] : num).toString().padStart(3, '0');
+            numerosOcupados[numFormateado] = true;
+        });
+    });
+    
+    const numerosNoDisponibles = numerosArray.filter(num => {
+        const numFormateado = parseInt(num).toString().padStart(3, '0');
+        return numerosOcupados[numFormateado];
+    });
+    
+    if (numerosNoDisponibles.length > 0) {
+        alert(`Los siguientes números ya están ocupados: ${numerosNoDisponibles.join(', ')}`);
+        return;
+    }
+    
+    // Verificar si el cliente ya tiene alguno de estos números
+    const numerosClienteActual = cliente.numeros.split(',').map(num => {
+        return num.includes(':') ? num.split(':')[0] : num;
+    });
+    
+    const numerosDuplicados = numerosArray.filter(num => {
+        const numFormateado = parseInt(num).toString().padStart(3, '0');
+        return numerosClienteActual.includes(numFormateado);
+    });
+    
+    if (numerosDuplicados.length > 0) {
+        alert(`El cliente ya tiene los siguientes números: ${numerosDuplicados.join(', ')}`);
+        return;
+    }
+    
+    // Preparar nuevos números con el formato correcto
+    const precioNumero = rifa.precio || 0;
+    const nuevosNumerosFormateados = numerosArray.map(num => {
+        const numFormateado = parseInt(num).toString().padStart(3, '0');
+        const abonoInicial = (estadoNuevo === 'pagado') ? precioNumero : 0;
+        return `${numFormateado}:${estadoNuevo}:${abonoInicial}`;
+    });
+    
+    // Agregar los nuevos números a los existentes
+    const numerosActualizados = [...cliente.numeros.split(','), ...nuevosNumerosFormateados]
+        .sort((a, b) => parseInt(a.split(':')[0]) - parseInt(b.split(':')[0]))
+        .join(',');
+    
+    // Actualizar cliente
+    cliente.numeros = numerosActualizados;
+    
+    // Guardar cambios
+    await guardarTodo();
+    
+    // Cerrar modal y actualizar lista
+    modal.remove();
+    actualizarListaClientes();
+    
+    alert(`Se agregaron ${numerosArray.length} números al cliente ${cliente.nombre}`);
+}
+// Manejar la respuesta de OAuth de Google
+window.addEventListener('load', function() {
+    // Verificar si hay un token de acceso en la URL (respuesta de OAuth)
+    const hash = window.location.hash;
+    if (hash.includes('access_token') && hash.includes('state=google_drive_auth')) {
+        const params = new URLSearchParams(hash.substring(1));
+        const accessToken = params.get('access_token');
+        const expiresIn = params.get('expires_in');
+        
+        if (accessToken) {
+            // Guardar el token y su tiempo de expiración
+            const expiryTime = new Date().getTime() + (parseInt(expiresIn) * 1000);
+            localStorage.setItem('google_access_token', accessToken);
+            localStorage.setItem('google_token_expiry', expiryTime.toString());
+            googleAccessToken = accessToken;
+            
+            // Actualizar UI
+            actualizarEstadoGoogleDrive('Conectado a Google Drive', 'success');
+            
+            // Limpiar URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+});
+
+// Función para mostrar opciones CSV
+function mostrarOpcionesCSV(rifa) {
+    // Guardar la rifa seleccionada en una variable global temporal
+    window.rifaCSVActual = rifa;
+    
+    // Mostrar el modal de opciones CSV
+    const csvModal = document.getElementById('csv-modal');
+    csvModal.classList.remove('hidden');
+    
+    // Configurar eventos para los botones
+    document.getElementById('btn-descargar-csv').onclick = () => {
+        descargarCSV(rifa);
+        csvModal.classList.add('hidden');
+    };
+    
+    document.getElementById('btn-generador-cuadriculas').onclick = () => {
+        abrirGeneradorCuadriculas(rifa);
+        csvModal.classList.add('hidden');
+    };
+}
+
+// Función para descargar CSV
+function descargarCSV(rifa) {
+    // Obtener clientes de esta rifa
+    const clientesRifa = clientes.filter(c => c.rifaId === rifa.id);
+    
+    // Crear contenido CSV con la estructura exacta del ejemplo
+    let csvContent = "Número,Estado,Cliente\n";
+    
+    // Crear un array para todos los números
+    const todosNumeros = [];
+    
+    // Procesar cada cliente y sus números
+    clientesRifa.forEach(cliente => {
+        cliente.numeros.split(',').forEach(numCompleto => {
+            const [num, estado] = numCompleto.includes(':') ? 
+                numCompleto.split(':') : 
+                [numCompleto, cliente.estado];
+                
+            const numFormateado = parseInt(num).toString().padStart(3, '0');
+            
+            // Traducir estados al español como en el ejemplo
+            let estadoTraducido = estado;
+            if (estado === 'disponible') estadoTraducido = 'disponible';
+            if (estado === 'apartado') estadoTraducido = 'apartado';
+            if (estado === 'pagado') estadoTraducido = 'pagado';
+            if (estado === 'abonado') estadoTraducido = 'abonado';
+            
+            todosNumeros.push({
+                numero: numFormateado,
+                estado: estadoTraducido,
+                cliente: cliente.nombre
+            });
+        });
+    });
+    
+    // Agregar números disponibles
+    for (let i = 0; i < rifa.totalNumeros; i++) {
+        const numFormateado = i.toString().padStart(3, '0');
+        
+        // Verificar si el número ya está en la lista
+        const existe = todosNumeros.some(item => item.numero === numFormateado);
+        
+        if (!existe) {
+            todosNumeros.push({
+                numero: numFormateado,
+                estado: 'disponible',
+                cliente: ''
+            });
+        }
+    }
+    
+    // Ordenar números numéricamente
+    todosNumeros.sort((a, b) => parseInt(a.numero) - parseInt(b.numero));
+    
+    // Agregar filas al CSV (SIN comillas y SIN teléfono)
+    todosNumeros.forEach(item => {
+        csvContent += `${item.numero},${item.estado},${item.cliente}\n`;
+    });
+    
+    // Crear blob y descargar
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // Nombre del archivo con fecha (igual al ejemplo)
+    const fecha = new Date().toISOString().slice(0, 10);
+    const nombreArchivo = `Rifa_${rifa.nombre}_${fecha}.csv`.replace(/[^a-zA-Z0-9_]/g, '_');
+    
+    link.setAttribute('download', nombreArchivo);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    alert(`CSV de la rifa "${rifa.nombre}" descargado correctamente`);
+}
+
+// Función para abrir el generador de cuadrículas
+function abrirGeneradorCuadriculas(rifa) {
+    // Abrir en una nueva pestaña
+    window.open('https://leonardyjhn.github.io/generadorlinda/', '_blank');
+    
+    alert(`Redirigiendo al generador de cuadrículas para la rifa "${rifa.nombre}"`);
+}
+
+// Función para formatear el tamaño del archivo
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Función para eliminar archivo de Google Drive
+async function eliminarArchivoGoogleDrive(fileId, fileName) {
+    if (!confirm(`¿Estás seguro de que deseas eliminar el archivo "${fileName}"? Esta acción no se puede deshacer.`)) {
+        return;
+    }
+    
+    try {
+        mostrarLoading('Eliminando archivo...');
+        
+        const response = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${fileId}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${googleAccessToken}`
+                }
+            }
+        );
+        
+        if (response.ok) {
+            ocultarLoading();
+            alert('✅ Archivo eliminado correctamente');
+            
+            // Actualizar la lista de archivos
+            const archivos = await listarArchivosGoogleDrive();
+            const modal = document.getElementById('google-drive-modal');
+            const content = document.getElementById('google-drive-content');
+            
+            if (archivos.length === 0) {
+                modal.classList.add('hidden');
+                alert('No hay más respaldos en tu Google Drive');
+            } else {
+                mostrarModalSeleccionArchivo(archivos);
+            }
+        } else {
+            throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+    } catch (error) {
+        console.error('Error al eliminar archivo:', error);
+        ocultarLoading();
+        alert('❌ Error al eliminar el archivo: ' + error.message);
+    }
+}
+
+// Función para mostrar opciones de gestión de Google Drive
+function mostrarOpcionesGoogleDrive() {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-modal">&times;</span>
+            <h2>Gestión de Google Drive</h2>
+            <div class="button-group" style="display: flex; flex-direction: column; gap: 10px;">
+                <button id="btn-ver-archivos" style="background: #3498db;">
+                    <i class="fas fa-list"></i> Ver y Gestionar Archivos
+                </button>
+                <button id="btn-liberar-espacio" style="background: #e67e22;">
+                    <i class="fas fa-broom"></i> Limpiar Archivos Antiguos
+                </button>
+                <button id="btn-cerrar-gestion" style="background: #7f8c8d;">
+                    <i class="fas fa-times"></i> Cerrar
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    modal.classList.remove('hidden');
+    
+    // Configurar eventos
+    modal.querySelector('.close-modal').addEventListener('click', () => {
+        modal.remove();
+    });
+    
+    document.getElementById('btn-cerrar-gestion').addEventListener('click', () => {
+        modal.remove();
+    });
+    
+    document.getElementById('btn-ver-archivos').addEventListener('click', async () => {
+        modal.remove();
+        await iniciarGoogleDriveRestore();
+    });
+    
+    document.getElementById('btn-liberar-espacio').addEventListener('click', async () => {
+        modal.remove();
+        await limpiarArchivosAntiguos();
+    });
+}
+
+// ====== FUNCIONES PARA BUSCAR NÚMERO GANADOR ======
+
+function configurarBuscadorGanador() {
+    const btnBuscarGanador = document.getElementById('btn-buscar-ganador');
+    const inputNumeroGanador = document.getElementById('numero-ganador-buscar');
+    
+    if (btnBuscarGanador && inputNumeroGanador) {
+        btnBuscarGanador.addEventListener('click', buscarNumeroGanador);
+        inputNumeroGanador.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                buscarNumeroGanador();
+            }
+        });
+    }
+    
+    // Configurar botón de WhatsApp en el modal
+    const btnWhatsappGanador = document.getElementById('btn-whatsapp-ganador');
+    if (btnWhatsappGanador) {
+        btnWhatsappGanador.addEventListener('click', enviarWhatsAppGanador);
+    }
+}
+
+function buscarNumeroGanador() {
+    if (!rifaActiva) {
+        alert('Primero debes seleccionar una rifa activa');
+        return;
+    }
+    
+    const numeroInput = document.getElementById('numero-ganador-buscar').value.trim();
+    
+    if (!numeroInput) {
+        alert('Por favor ingresa un número para buscar');
+        return;
+    }
+    
+    // Formatear el número a 3 dígitos
+    const numeroBuscado = parseInt(numeroInput).toString().padStart(3, '0');
+    
+    // Buscar en los clientes de la rifa activa
+    const clientesRifa = clientes.filter(c => c.rifaId === rifaActiva);
+    const rifa = rifas.find(r => r.id === rifaActiva);
+    
+    let clienteGanador = null;
+    let numeroEncontrado = null;
+    
+    // Buscar el número en todos los clientes
+    for (const cliente of clientesRifa) {
+        const numerosCliente = cliente.numeros.split(',');
+        
+        for (const numCompleto of numerosCliente) {
+            const [num] = numCompleto.includes(':') ? numCompleto.split(':') : [numCompleto];
+            const numFormateado = parseInt(num).toString().padStart(3, '0');
+            
+            if (numFormateado === numeroBuscado) {
+                clienteGanador = cliente;
+                numeroEncontrado = numCompleto;
+                break;
+            }
+        }
+        
+        if (clienteGanador) break;
+    }
+    
+    if (clienteGanador && numeroEncontrado) {
+        mostrarModalGanador(clienteGanador, numeroEncontrado, rifa);
+    } else {
+        alert(`El número ${numeroBuscado} no está asignado a ningún cliente en la rifa activa`);
+    }
+}
+
+function mostrarModalGanador(cliente, numeroCompleto, rifa) {
+    // Extraer información del número
+    const [numBase, estado, abono] = numeroCompleto.includes(':') ? 
+        numeroCompleto.split(':') : 
+        [numeroCompleto, cliente.estado, '0'];
+    
+    const numeroFormateado = parseInt(numBase).toString().padStart(3, '0');
+    const abonoActual = parseFloat(abono || 0);
+    const precioNumero = rifa.precio || 0;
+    
+    // Determinar estado final
+    let estadoFinal = estado;
+    let estadoDisplay = estado;
+    
+    if (estado === 'pagado' || abonoActual >= precioNumero) {
+        estadoFinal = 'pagado';
+        estadoDisplay = 'PAGADO ✓';
+    } else if (abonoActual > 0) {
+        estadoFinal = 'abonado';
+        estadoDisplay = `ABONADO ($${abonoActual.toFixed(2)})`;
+    } else if (estado === 'apartado') {
+        estadoDisplay = 'APARTADO';
+    }
+    
+    // Calcular total de números del cliente
+    const totalNumerosCliente = cliente.numeros.split(',').length;
+    
+    // Actualizar el modal
+    document.getElementById('ganador-numero').textContent = numeroFormateado;
+    document.getElementById('ganador-estado').textContent = estadoDisplay;
+    document.getElementById('ganador-estado').className = `estado-ganador ${estadoFinal}`;
+    document.getElementById('ganador-cliente').textContent = cliente.nombre;
+    document.getElementById('ganador-telefono').textContent = cliente.telefono;
+    document.getElementById('ganador-rifa').textContent = rifa.nombre;
+    document.getElementById('ganador-total-numeros').textContent = totalNumerosCliente;
+    document.getElementById('ganador-abonado').textContent = `$${abonoActual.toFixed(2)}`;
+    
+    // Guardar datos para el WhatsApp
+    document.getElementById('ganador-modal').dataset.cliente = JSON.stringify(cliente);
+    document.getElementById('ganador-modal').dataset.numero = numeroFormateado;
+    document.getElementById('ganador-modal').dataset.rifa = rifa.nombre;
+    document.getElementById('ganador-modal').dataset.estado = estadoFinal;
+    
+    // Mostrar modal
+    document.getElementById('ganador-modal').classList.remove('hidden');
+}
+
+function enviarWhatsAppGanador() {
+    const modal = document.getElementById('ganador-modal');
+    const cliente = JSON.parse(modal.dataset.cliente);
+    const numeroGanador = modal.dataset.numero;
+    const rifaNombre = modal.dataset.rifa;
+    const estado = modal.dataset.estado;
+    
+    // Usar la plantilla personalizada para ganadores
+    const plantillaGanador = localStorage.getItem('rifasSucre_plantilla_ganador') || 
+        '¡FELICIDADES {nombre}! 🎉\n\n' +
+        '¡ERES EL GANADOR/A DE LA RIFA "{rifa}"! 🏆\n\n' +
+        'Número ganador: {numeroGanador}\n' +
+        'Estado: {estado}\n\n' +
+        'Por favor contáctanos para reclamar tu premio. 🎁';
+
+    const mensaje = plantillaGanador
+        .replace(/{nombre}/g, cliente.nombre)
+        .replace(/{rifa}/g, rifaNombre)
+        .replace(/{numeroGanador}/g, numeroGanador)
+        .replace(/{estado}/g, estado.toUpperCase())
+        .replace(/{fecha}/g, new Date().toLocaleDateString());
+
+    const url = `https://wa.me/${cliente.telefono}?text=${encodeURIComponent(mensaje)}`;
+    window.open(url, '_blank');
+}
+
+// ====== FIN FUNCIONES BUSCADOR GANADOR ======
+
+// Función para limpiar archivos antiguos automáticamente
+async function limpiarArchivosAntiguos() {
+    const dias = prompt('¿Eliminar archivos más antiguos de cuántos días? (Ej: 30 para eliminar archivos de más de 30 días)', '30');
+    
+    if (!dias || isNaN(dias)) {
+        return;
+    }
+    
+    const diasNum = parseInt(dias);
+    const fechaLimite = new Date();
+    fechaLimite.setDate(fechaLimite.getDate() - diasNum);
+    
+    try {
+        mostrarLoading('Buscando archivos antiguos...');
+        const archivos = await listarArchivosGoogleDrive();
+        
+        const archivosAntiguos = archivos.filter(archivo => {
+            const fechaCreacion = new Date(archivo.createdTime);
+            return fechaCreacion < fechaLimite;
+        });
+        
+        ocultarLoading();
+        
+        if (archivosAntiguos.length === 0) {
+            alert(`No se encontraron archivos más antiguos de ${diasNum} días`);
+            return;
+        }
+        
+        if (!confirm(`Se encontraron ${archivosAntiguos.length} archivos más antiguos de ${diasNum} días. ¿Deseas eliminarlos todos?`)) {
+            return;
+        }
+        
+        mostrarLoading(`Eliminando ${archivosAntiguos.length} archivos...`);
+        let eliminados = 0;
+        let errores = 0;
+        
+        for (const archivo of archivosAntiguos) {
+            try {
+                await eliminarArchivoGoogleDriveSilent(archivo.id);
+                eliminados++;
+            } catch (error) {
+                console.error(`Error al eliminar ${archivo.name}:`, error);
+                errores++;
+            }
+        }
+        
+        ocultarLoading();
+        alert(`Proceso completado:\n✅ ${eliminados} archivos eliminados\n❌ ${errores} errores`);
+        
+    } catch (error) {
+        console.error('Error al limpiar archivos:', error);
+        ocultarLoading();
+        alert('Error al limpiar archivos antiguos');
+    }
+}
+
+// Función para mostrar la planilla C Flash
+function mostrarPlanillaCFlash() {
+    if (!rifaActiva) {
+        alert('No hay rifa activa seleccionada');
+        return;
+    }
+
+    const modal = document.getElementById('c-flash-modal');
+    const content = document.getElementById('c-flash-content');
+    
+    // Generar la planilla
+    content.innerHTML = generarPlanillaCFlash();
+    
+    // Configurar eventos
+    document.getElementById('btn-descargar-c-flash').onclick = descargarPlanillaCFlash;
+    
+    // Mostrar modal
+    modal.classList.remove('hidden');
+}
+
+// Función para generar el contenido de la planilla
+function generarPlanillaCFlash() {
+    const rifa = rifas.find(r => r.id === rifaActiva);
+    if (!rifa) return '';
+    
+    const numerosPlanilla = Array.from({length: 100}, (_, i) => i.toString().padStart(2, '0'));
+    
+    let tablaHTML = `
+        <div class="c-flash-table-container">
+            <table class="c-flash-table">
+                <thead>
+                    <tr>
+                        <th class="c-flash-narrow-column c-flash-col-group-1" style="font-weight: bold !important;">N°</th>
+                        <th class="c-flash-name-column c-flash-col-group-1" style="font-weight: bold !important;">Nombre</th>
+                        <th class="c-flash-status-column c-flash-col-group-1" style="font-weight: bold !important;">Estado</th>
+                        <th class="c-flash-narrow-column c-flash-col-group-2" style="font-weight: bold !important;">N°</th>
+                        <th class="c-flash-name-column c-flash-col-group-2" style="font-weight: bold !important;">Nombre</th>
+                        <th class="c-flash-status-column c-flash-col-group-2" style="font-weight: bold !important;">Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    for (let i = 0; i < 50; i++) {
+        const numero1 = numerosPlanilla[i];
+        const numero2 = numerosPlanilla[i + 50];
+        
+        const infoNumero1 = obtenerInfoNumeroParaPlanilla(rifa.id, numero1);
+        const infoNumero2 = obtenerInfoNumeroParaPlanilla(rifa.id, numero2);
+        
+        // FORZAR ESTILOS EN LÍNEA PARA GARANTIZAR TEXTO NEGRO Y NEGRITA
+        tablaHTML += `
+            <tr>
+                <td class="c-flash-col-group-1" style="color: #000000 !important; font-weight: bold !important;">${numero1}</td>
+                <td class="c-flash-col-group-1" style="color: #000000 !important; font-weight: bold !important;">${infoNumero1.nombre || ''}</td>
+                <td class="c-flash-col-group-1 ${infoNumero1.claseEstado}" style="color: #000000 !important; font-weight: bold !important;">${infoNumero1.estado || ''}</td>
+                <td class="c-flash-col-group-2" style="color: #000000 !important; font-weight: bold !important;">${numero2}</td>
+                <td class="c-flash-col-group-2" style="color: #000000 !important; font-weight: bold !important;">${infoNumero2.nombre || ''}</td>
+                <td class="c-flash-col-group-2 ${infoNumero2.claseEstado}" style="color: #000000 !important; font-weight: bold !important;">${infoNumero2.estado || ''}</td>
+            </tr>
+        `;
+    }
+    
+    tablaHTML += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    return tablaHTML;
+}
+
+// Función auxiliar para obtener información del número
+function obtenerInfoNumeroParaPlanilla(rifaId, numero) {
+    // Buscar cliente que tenga este número
+    const clientesConNumero = clientes.filter(c => 
+        c.rifaId === rifaId && 
+        c.numeros.split(',').some(n => {
+            const numPart = n.includes(':') ? n.split(':')[0] : n;
+            return parseInt(numPart).toString().padStart(2, '0') === numero;
+        })
+    ).sort((a, b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
+    
+    if (clientesConNumero.length === 0) {
+        return { nombre: '', estado: '', claseEstado: 'c-flash-disponible' };
+    }
+    
+    const cliente = clientesConNumero[0];
+    const numData = cliente.numeros.split(',')
+        .find(n => {
+            const nPart = n.includes(':') ? n.split(':')[0] : n;
+            return parseInt(nPart).toString().padStart(2, '0') === numero;
+        });
+    
+    if (numData && numData.includes(':')) {
+        const partes = numData.split(':');
+        const estado = partes.length > 1 ? partes[1] : cliente.estado;
+        
+        let claseEstado = 'c-flash-disponible';
+        let estadoDisplay = '';
+        
+        switch(estado) {
+            case 'apartado':
+                claseEstado = 'c-flash-apartado';
+                estadoDisplay = 'Apartado';
+                break;
+            case 'pagado':
+                claseEstado = 'c-flash-pagado';
+                estadoDisplay = 'Pagado';
+                break;
+            case 'abonado':
+                claseEstado = 'c-flash-abonado';
+                estadoDisplay = 'Abonado';
+                break;
+            default:
+                claseEstado = 'c-flash-disponible';
+                estadoDisplay = 'Disponible';
+        }
+        
+        return { 
+            nombre: cliente.nombre, 
+            estado: estadoDisplay, 
+            claseEstado: claseEstado 
+        };
+    } else {
+        return { 
+            nombre: cliente.nombre, 
+            estado: cliente.estado === 'pagado' ? 'Pagado' : 'Apartado', 
+            claseEstado: cliente.estado === 'pagado' ? 'c-flash-pagado' : 'c-flash-apartado' 
+        };
+    }
+}
+
+// Función para descargar la planilla
+function descargarPlanillaCFlash() {
+    const quality = parseFloat(document.getElementById('c-flash-quality').value);
+    const scale = parseFloat(document.getElementById('c-flash-scale').value);
+    const content = document.getElementById('c-flash-content');
+    
+    // Mostrar loading
+    const loadingDiv = document.createElement('div');
+    loadingDiv.innerHTML = `
+        <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                   background: rgba(0,0,0,0.8); color: white; padding: 20px; border-radius: 5px; z-index: 10000;">
+            <i class="fas fa-spinner fa-spin"></i> Generando imagen...
+        </div>
+    `;
+    document.body.appendChild(loadingDiv);
+    
+    html2canvas(content, {
+        scale: scale,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: 720,
+        height: 1053
+    }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = `planilla_c_flash_${new Date().toISOString().slice(0,10)}.png`;
+        link.href = canvas.toDataURL('image/png', quality);
+        link.click();
+        
+        // Remover loading
+        document.body.removeChild(loadingDiv);
+    }).catch(error => {
+        console.error('Error al generar imagen:', error);
+        alert('Error al generar la imagen');
+        document.body.removeChild(loadingDiv);
+    });
+}
+
+// Función silenciosa para eliminar archivos (sin mostrar modales)
+async function eliminarArchivoGoogleDriveSilent(fileId) {
+    const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}`,
+        {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${googleAccessToken}`
+            }
+        }
+    );
+    
+    if (!response.ok) {
+        throw new Error(`Error ${response.status}`);
+    }
+    
+    return true;
+}
