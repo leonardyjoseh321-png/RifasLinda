@@ -10,6 +10,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
+<script src="https://apis.google.com/js/api.js"></script>
+<script src="https://accounts.google.com/gsi/client"></script>
+
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="manifest" href="./manifest.json">
@@ -24,19 +27,30 @@
         <button id="btn-acceder">Acceder</button>
     </div>
     <div class="button-group">
-       
         <button id="btn-superusuario">Superusuario</button>
         <button id="btn-contacto">Contacto <i class="fab fa-whatsapp"></i></button>
         <button id="btn-manual">
-    <i class="fas fa-book"></i> Manual
-</button>
+            <i class="fas fa-book"></i> Manual
+        </button>
+        <!-- NUEVO BOTÓN PARA LIBERAR CÓDIGO -->
+        <button id="btn-liberar-codigo" style="background-color: #e67e22;">
+            <i class="fas fa-unlock"></i> Liberar Código
+        </button>
     </div>
 </div>
 
         <div id="main-container" class="container hidden">
-            <div class="header">
-                <h1 id="app-title">Rifas Sucre</h1>
-                <div class="rifa-activa" id="rifa-activa-info"></div>
+    <div class="header">
+        <h1 id="app-title">Rifas Sucre</h1>
+        <div class="rifa-activa" id="rifa-activa-info"></div>
+        
+        <!-- NUEVO BUSCADOR DE NÚMEROS GANADORES -->
+        <div class="buscador-ganador">
+            <div class="input-group-ganador">
+                <input type="text" id="numero-ganador-buscar" placeholder="Buscar número ganador (ej: 005)" maxlength="3">
+                <button id="btn-buscar-ganador"><i class="fas fa-search"></i> Buscar Ganador</button>
+            </div>
+        </div>
                <div class="menu">
     <button id="btn-rifas"><i class="fas fa-ticket-alt"></i> Rifas</button>
     <button id="btn-clientes"><i class="fas fa-users"></i> Clientes</button>
@@ -58,8 +72,28 @@
             </div>
 
             <div id="respaldo-section" class="content-section hidden">
-                <!-- Contenido de Respaldo -->
-            </div>
+    <h2>Respaldo de Datos</h2>
+    <p>Aquí puedes crear una copia de seguridad de todos tus datos o restaurar desde una copia previa.</p>
+    
+    <div class="respaldo-acciones">
+        <button id="btn-crear-respaldo"><i class="fas fa-save"></i> Crear Respaldo Local</button>
+        <button id="btn-restaurar-respaldo"><i class="fas fa-upload"></i> Restaurar Respaldo Local</button>
+        <button id="btn-google-drive-backup"><i class="fab fa-google-drive"></i> Guardar en Google Drive</button>
+        <button id="btn-google-drive-restore"><i class="fab fa-google-drive"></i> Restaurar desde Google Drive</button>
+    </div>
+    
+    <div id="google-drive-section" class="hidden" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
+        <h3>Conexión con Google Drive</h3>
+        <div class="form-group">
+            <label for="google-email">Correo electrónico de Google:</label>
+            <input type="email" id="google-email" placeholder="tu.correo@gmail.com" style="width: 100%; padding: 10px;">
+        </div>
+        <button id="btn-connect-google" style="background: #4285F4; color: white;">
+            <i class="fab fa-google"></i> Conectar con Google
+        </button>
+        <div id="google-status" style="margin-top: 10px; font-size: 14px;"></div>
+    </div>
+</div>
 
             <div id="seguridad-section" class="content-section hidden">
                 <!-- Contenido de Seguridad -->
@@ -164,10 +198,24 @@
             <textarea id="factura-encabezado" rows="3" placeholder="Información de tu negocio">${localStorage.getItem('nombreApp') || 'Rifas Sucre'}\nTeléfono: \nDirección: </textarea>
         </div>
         <div class="form-group">
-            <label for="factura-cuerpo">Cuerpo (usa {variables}):</label>
-            <textarea id="factura-cuerpo" rows="5">Cliente: {nombre}\nRifa: {rifa}\nNúmeros: {numeros}\nCantidad: {cantidad}\nPrecio unitario: {precio}\nTotal: {total}</textarea>
-            <small>Variables: {nombre}, {rifa}, {numeros}, {cantidad}, {precio}, {total}, {fecha}, {hora}</small>
+    <label for="factura-cuerpo">Cuerpo (usa {variables}):</label>
+    <textarea id="factura-cuerpo" rows="5">Cliente: {nombre}\nRifa: {rifa}\nNúmeros: {numeros}\nCantidad: {cantidad}\nPrecio unitario: {precio}\nTotal: {total}</textarea>
+    <div class="variables-guia">
+        <h4>Variables disponibles:</h4>
+        <div class="variables-lista">
+            <span class="variable-tag">{nombre}</span>
+            <span class="variable-tag">{rifa}</span>
+            <span class="variable-tag">{numeros}</span>
+            <span class="variable-tag">{cantidad}</span>
+            <span class="variable-tag">{precio}</span>
+            <span class="variable-tag">{total}</span>
+            <span class="variable-tag">{fecha}</span>
+            <span class="variable-tag">{hora}</span>
+            <span class="variable-tag">{pagado}</span>
+            <span class="variable-tag">{deuda}</span>
         </div>
+    </div>
+</div>
         <div class="form-group">
             <label for="factura-pie">Pie de página:</label>
             <textarea id="factura-pie" rows="3" placeholder="Mensaje final">¡Gracias por su compra!\nVálido como factura</textarea>
@@ -201,21 +249,64 @@
         <h2>Plantillas de Mensaje</h2>
         
         <div class="tab-container">
-            <div class="tab-buttons">
-                <button class="tab-btn active" data-tab="whatsapp">WhatsApp</button>
-                <button class="tab-btn" data-tab="rezagados">Rezagados</button>
-            </div>
-            
-            <div class="tab-content active" id="whatsapp-tab">
-                <h3>Plantilla WhatsApp</h3>
-                <textarea id="plantilla-mensaje" rows="10"></textarea>
-            </div>
-            
-            <div class="tab-content" id="rezagados-tab">
-                <h3>Plantilla Rezagados</h3>
-                <textarea id="plantilla-rezagados" rows="10"></textarea>
+    <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="whatsapp">WhatsApp</button>
+        <button class="tab-btn" data-tab="rezagados">Rezagados</button>
+        <button class="tab-btn" data-tab="ganador">Ganador</button>
+    </div>
+    
+    <div class="tab-content active" id="whatsapp-tab">
+        <h3>Plantilla WhatsApp</h3>
+        <textarea id="plantilla-mensaje" rows="10"></textarea>
+        <div class="variables-guia">
+            <h4>Variables disponibles:</h4>
+            <div class="variables-lista">
+                <span class="variable-tag">{nombre}</span>
+                <span class="variable-tag">{rifa}</span>
+                <span class="variable-tag">{numeros}</span>
+                <span class="variable-tag">{estado}</span>
+                <span class="variable-tag">{fecha}</span>
+                <span class="variable-tag">{hora}</span>
+                <span class="variable-tag">{total}</span>
+                <span class="variable-tag">{pagado}</span>
+                <span class="variable-tag">{deuda}</span>
             </div>
         </div>
+    </div>
+    
+    <div class="tab-content" id="rezagados-tab">
+        <h3>Plantilla Rezagados</h3>
+        <textarea id="plantilla-rezagados" rows="10"></textarea>
+        <div class="variables-guia">
+            <h4>Variables disponibles:</h4>
+            <div class="variables-lista">
+                <span class="variable-tag">{nombre}</span>
+                <span class="variable-tag">{rifa}</span>
+                <span class="variable-tag">{numeros}</span>
+                <span class="variable-tag">{estado}</span>
+                <span class="variable-tag">{fecha}</span>
+                <span class="variable-tag">{total}</span>
+                <span class="variable-tag">{pagado}</span>
+                <span class="variable-tag">{deuda}</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-content" id="ganador-tab">
+        <h3>Plantilla Ganador</h3>
+        <textarea id="plantilla-ganador" rows="10"></textarea>
+        <div class="variables-guia">
+            <h4>Variables disponibles:</h4>
+            <div class="variables-lista">
+                <span class="variable-tag">{nombre}</span>
+                <span class="variable-tag">{rifa}</span>
+                <span class="variable-tag">{numeroGanador}</span>
+                <span class="variable-tag">{estado}</span>
+                <span class="variable-tag">{fecha}</span>
+            </div>
+        </div>
+    </div>
+</div>
         
         <button id="btn-guardar-plantilla">Guardar Plantillas</button>
     </div>
@@ -269,34 +360,86 @@
     </div>
 
     <!-- Modal de Confirmación -->
-    <div id="confirmacion-modal" class="modal hidden">
-        <div class="modal-content small">
-            <h2 id="confirmacion-titulo"></h2>
-            <p id="confirmacion-mensaje"></p>
-            <div class="confirmacion-botones">
-                <button id="confirmacion-si">Sí</button>
-                <button id="confirmacion-no">No</button>
-            </div>
+    <!-- Modal de Confirmación -->
+<div id="confirmacion-modal" class="modal hidden">
+    <div class="modal-content small">
+        <h2 id="confirmacion-titulo"></h2>
+        <p id="confirmacion-mensaje"></p>
+        <div class="confirmacion-botones">
+            <button id="confirmacion-si">Sí</button>
+            <button id="confirmacion-no">No</button>
         </div>
     </div>
+</div>
 
-    <!-- Modal para Plantilla de Ticket -->
-    <div id="plantilla-ticket-modal" class="modal hidden">
-        <div class="modal-content">
-            <span class="close-modal">&times;</span>
-            <h2>Plantilla de Ticket</h2>
-            <div class="form-group">
-                <label for="plantilla-ticket-titulo">Título del Ticket:</label>
-                <input type="text" id="plantilla-ticket-titulo" placeholder="Ej: TICKET DE RIFA">
-            </div>
-            <div class="form-group">
-                <label for="plantilla-ticket-mensaje">Mensaje (usa {variables}):</label>
-                <textarea id="plantilla-ticket-mensaje" rows="10" placeholder="Ej: Cliente: {nombre}\nNúmeros: {numeros}"></textarea>
-<small>Variables disponibles: {nombre}, {rifa}, {numeros}, {estado}, {fecha}, {total}, {pagado}, {deuda}, {hora}</small>
-            </div>
-            <button id="btn-guardar-plantilla-ticket">Guardar Plantilla</button>
+<!-- NUEVO: Modal de Código Expirado -->
+<div id="expirado-modal" class="modal hidden">
+    <div class="modal-content small">
+        <h2>Código Expirado</h2>
+        <p>Tu código de acceso ha expirado. Debes ingresar un nuevo código válido para continuar usando la aplicación.</p>
+        <div class="confirmacion-botones">
+            <button id="btn-entendido-expirado">Entendido</button>
         </div>
     </div>
+</div>
+
+<!-- Modal de Opciones CSV -->
+<div id="csv-modal" class="modal hidden">
+    <div class="modal-content small">
+        <span class="close-modal">&times;</span>
+        <h2>Opciones CSV</h2>
+        <div class="button-group" style="flex-direction: column; gap: 10px;">
+            <button id="btn-descargar-csv" style="background-color: #27ae60;">
+                <i class="fas fa-download"></i> Descargar CSV
+            </button>
+            <button id="btn-generador-cuadriculas" style="background-color: #3498db;">
+                <i class="fas fa-external-link-alt"></i> Generador de Cuadrículas
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Plantilla de Ticket -->
+<div id="plantilla-ticket-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h2>Plantilla de Ticket y WhatsApp</h2>
+        
+        <div class="form-group">
+            <label for="plantilla-ticket-titulo">Título del Ticket:</label>
+            <input type="text" id="plantilla-ticket-titulo" placeholder="Ej: TICKET DE RIFA">
+        </div>
+        
+        <div class="form-group">
+            <label for="plantilla-ticket-mensaje">Mensaje del Ticket (usa {variables}):</label>
+            <textarea id="plantilla-ticket-mensaje" rows="8" placeholder="Ej: Cliente: {nombre}\nNúmeros: {numeros}"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label for="plantilla-whatsapp-mensaje">Mensaje de WhatsApp (se enviará automáticamente):</label>
+            <textarea id="plantilla-whatsapp-mensaje" rows="8" placeholder="Ej: ¡Hola {nombre}! Aquí tienes tu ticket de la rifa {rifa}"></textarea>
+            <small>Este mensaje se enviará automáticamente al abrir WhatsApp</small>
+        </div>
+        
+        <div class="variables-guia">
+            <h4>Variables disponibles:</h4>
+            <div class="variables-lista">
+                <span class="variable-tag">{nombre}</span>
+                <span class="variable-tag">{rifa}</span>
+                <span class="variable-tag">{numeros}</span>
+                <span class="variable-tag">{estado}</span>
+                <span class="variable-tag">{fecha}</span>
+                <span class="variable-tag">{hora}</span>
+                <span class="variable-tag">{total}</span>
+                <span class="variable-tag">{pagado}</span>
+                <span class="variable-tag">{deuda}</span>
+                <span class="variable-tag">{telefono}</span>
+            </div>
+        </div>
+        
+        <button id="btn-guardar-plantilla-ticket">Guardar Plantillas</button>
+    </div>
+</div>
 
 <!-- Modal para ver/editar clientes permanentes -->
 <div id="clientes-permanentes-modal" class="modal hidden">
@@ -327,6 +470,91 @@
         <div class="button-group">
             <button id="btn-exportar-clientes"><i class="fas fa-file-export"></i> Guardar Clientes</button>
             <button id="btn-importar-clientes"><i class="fas fa-file-import"></i> Restaurar Clientes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Número Ganador -->
+<div id="ganador-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h2>¡Número Ganador Encontrado!</h2>
+        
+        <div class="info-ganador">
+            <div class="ganador-item">
+                <strong>Número:</strong> <span id="ganador-numero">000</span>
+            </div>
+            <div class="ganador-item">
+                <strong>Estado:</strong> <span id="ganador-estado" class="estado-ganador">PAGADO ✓</span>
+            </div>
+            <div class="ganador-item">
+                <strong>Cliente:</strong> <span id="ganador-cliente">Nombre del cliente</span>
+            </div>
+            <div class="ganador-item">
+                <strong>Teléfono:</strong> <span id="ganador-telefono">000-000-0000</span>
+            </div>
+            <div class="ganador-item">
+                <strong>Rifa:</strong> <span id="ganador-rifa">Nombre de la rifa</span>
+            </div>
+            <div class="ganador-item">
+                <strong>Total de números del cliente:</strong> <span id="ganador-total-numeros">0</span>
+            </div>
+            <div class="ganador-item">
+                <strong>Abonado:</strong> <span id="ganador-abonado">$0.00</span>
+            </div>
+        </div>
+        
+        <div class="acciones-ganador">
+            <button id="btn-whatsapp-ganador" class="btn-whatsapp">
+                <i class="fab fa-whatsapp"></i> Enviar WhatsApp de Felicitaciones
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Google Drive -->
+<div id="google-drive-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h2>Google Drive</h2>
+        <div id="google-drive-content">
+            <p>Conectando con Google Drive...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Planilla C Flash -->
+<div id="c-flash-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 95vw; max-height: 95vh; width: 720px; height: 1280px;">
+        <span class="close-modal">&times;</span>
+        <h2>Planilla C Flash - Rifa Activa</h2>
+        
+        <div class="c-flash-controls" style="margin: 10px 0; display: flex; gap: 10px; align-items: center;">
+            <button id="btn-descargar-c-flash" style="background-color: #27ae60; color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer;">
+                <i class="fas fa-download"></i> Descargar Planilla
+            </button>
+            
+            <div class="quality-options" style="display: flex; gap: 10px; align-items: center;">
+                <label for="c-flash-quality">Calidad:</label>
+                <select id="c-flash-quality" style="padding: 5px;">
+                    <option value="1">Alta</option>
+                    <option value="0.9">Buena</option>
+                    <option value="0.7">Media</option>
+                    <option value="0.5">Baja</option>
+                </select>
+                
+                <label for="c-flash-scale">Escala:</label>
+                <select id="c-flash-scale" style="padding: 5px;">
+                    <option value="3">3x</option>
+                    <option value="2">2x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="1">1x</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="c-flash-container" id="c-flash-content" style="width: 720px; height: 1280px; background-color: white; padding: 15px; position: relative; overflow: hidden;">
+            <!-- La planilla se generará aquí dinámicamente -->
         </div>
     </div>
 </div>
