@@ -471,21 +471,51 @@ button i {
 
 .rifa-acciones {
     display: flex;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 15px;
 }
 
 .rifa-acciones button {
     flex: 1;
+    min-width: calc(50% - 10px);
     padding: 8px;
     font-size: 14px;
+    box-sizing: border-box;
+}
+
+/* Para pantallas más grandes */
+@media (min-width: 768px) {
+    .rifa-acciones {
+        flex-wrap: nowrap;
+        gap: 10px;
+    }
+    
+    .rifa-acciones button {
+        min-width: auto;
+        flex: 1;
+    }
 }
 
 /* Respaldo */
 .respaldo-acciones {
     display: flex;
+    flex-direction: column;
     gap: 10px;
     margin-top: 20px;
+}
+
+/* Para pantallas más grandes, mantener diseño horizontal */
+@media (min-width: 768px) {
+    .respaldo-acciones {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+    
+    .respaldo-acciones button {
+        flex: 1;
+        min-width: 200px;
+    }
 }
 
 .codigo-box {
@@ -1104,3 +1134,390 @@ button i {
 #manual-content strong {
     color: #2c3e50;
 }
+
+/* Estilos responsivos para la tabla de clientes permanentes */
+#tabla-clientes-permanentes {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#tabla-clientes-permanentes th,
+#tabla-clientes-permanentes td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+/* Hacer la tabla responsiva en móviles */
+@media (max-width: 768px) {
+    #tabla-clientes-permanentes {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+    
+    .editar-telefono {
+        width: 120px !important; /* Asegurar que los campos de teléfono tengan suficiente espacio */
+    }
+    
+    /* Mejorar visualización de botones en móviles */
+    .btn-guardar-cliente, 
+    .btn-eliminar-cliente {
+        padding: 6px 8px !important;
+        font-size: 12px !important;
+    }
+}
+
+/* Estilo específico para campos de teléfono */
+.editar-telefono {
+    font-family: monospace; /* Mejor visualización de números */
+}
+
+/* Estilos para las guías de variables */
+.variables-guia {
+    margin-top: 15px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    border-left: 4px solid #3498db;
+}
+
+.variables-guia h4 {
+    margin-bottom: 10px;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.variables-lista {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.variable-tag {
+    background-color: #3498db;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: monospace;
+}
+
+/* Responsive para móviles */
+@media (max-width: 768px) {
+    .variables-lista {
+        gap: 5px;
+    }
+    
+    .variable-tag {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+    
+    .variables-guia {
+        padding: 10px;
+    }
+}
+
+/* Estilos para el modal de expiración */
+#expirado-modal .modal-content {
+    text-align: center;
+    max-width: 400px;
+}
+
+#expirado-modal h2 {
+    color: #e74c3c;
+    margin-bottom: 15px;
+}
+
+#expirado-modal p {
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+#btn-entendido-expirado {
+    background-color: #3498db;
+    padding: 10px 20px;
+}
+
+#btn-entendido-expirado:hover {
+    background-color: #2980b9;
+}
+
+/* Estilos para el modal de CSV */
+#csv-modal .modal-content {
+    text-align: center;
+}
+
+#csv-modal .button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+#csv-modal button {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+}
+
+/* Estilos para el buscador de números ganadores */
+.buscador-ganador {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 15px;
+    border-radius: 8px;
+    margin: 10px 0;
+    border: 2px solid #3498db;
+}
+
+.input-group-ganador {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.input-group-ganador input {
+    flex: 1;
+    min-width: 200px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+.input-group-ganador button {
+    background-color: #27ae60;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.input-group-ganador button:hover {
+    background-color: #219653;
+}
+
+/* Estilos para el modal de ganador */
+/* Estilos para el modal de ganador */
+.info-ganador {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.ganador-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.ganador-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.estado-ganador.pagado {
+    color: #27ae60;
+    font-weight: bold;
+    background: none !important; /* Quitar fondo */
+    padding: 0 !important; /* Quitar padding */
+}
+
+.estado-ganador.apartado {
+    color: #f39c12;
+    font-weight: bold;
+    background: none !important; /* Quitar fondo */
+    padding: 0 !important; /* Quitar padding */
+}
+
+.estado-ganador.abonado {
+    color: #e67e22;
+    font-weight: bold;
+    background: none !important; /* Quitar fondo */
+    padding: 0 !important; /* Quitar padding */
+}
+
+/* Asegurar que no haya fondos en los estados del modal */
+#ganador-modal .estado-ganador {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.acciones-ganador {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.btn-whatsapp {
+    background-color: #25D366 !important;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    width: 100%;
+}
+
+.btn-whatsapp:hover {
+    background-color: #128C7E !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .input-group-ganador {
+        flex-direction: column;
+    }
+    
+    .input-group-ganador input {
+        min-width: 100%;
+    }
+    
+    .ganador-item {
+        flex-direction: column;
+        gap: 5px;
+    }
+}
+
+/* Estilos para Planilla C Flash */
+.c-flash-container {
+    font-family: Arial, sans-serif;
+    width: 720px;
+    height: 1280px;
+    overflow: hidden;
+    background-color: white;
+    position: relative;
+    border: 2px solid #000000; /* Borde negro exterior más grueso */
+}
+
+.c-flash-table-container {
+    width: 690px;
+    height: 1220px;
+    overflow: hidden;
+    border: 2px solid #000000; /* Borde negro más grueso */
+}
+
+.c-flash-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12px;
+    border: 2px solid #000000;
+    text-align: center;
+    color: #000000 !important; /* FORZAR TEXTO NEGRO EN TODA LA TABLA */
+}
+
+.c-flash-th, .c-flash-td {
+    border: 1px solid #000000;
+    padding: 4px;
+    text-align: center;
+    height: 23px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    color: #000000 !important; /* TEXTO NEGRO GARANTIZADO */
+    font-weight: bold !important; /* CAMBIO A NEGRITA */
+}
+
+.c-flash-th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+    border: 2px solid #000000;
+    color: #000000 !important; /* TEXTO NEGRO EN ENCABEZADOS */
+}
+
+.c-flash-col-group-1 {
+    background-color: #e6f7ff;
+}
+
+.c-flash-col-group-2 {
+    background-color: #fff2e6;
+}
+
+.c-flash-narrow-column {
+    width: 8%;
+}
+
+.c-flash-name-column {
+    width: 40%;
+}
+
+.c-flash-status-column {
+    width: 12%;
+}
+
+/* Estilos para estados en la planilla - CON TEXTO NEGRO */
+.c-flash-disponible {
+    background-color: white;
+    color: #000000 !important; /* TEXTO NEGRO */
+}
+
+.c-flash-apartado {
+    background-color: #f1c40f;
+    color: #000000 !important; /* TEXTO NEGRO */
+}
+
+.c-flash-abonado {
+    background-color: #e67e22;
+    color: #000000 !important; /* TEXTO NEGRO */
+}
+
+.c-flash-pagado {
+    background-color: #2ecc71;
+    color: #000000 !important; /* TEXTO NEGRO */
+}
+
+/* Asegurar bordes visibles */
+.c-flash-table tr {
+    border: 1px solid #000000;
+}
+
+.c-flash-table td {
+    border: 1px solid #000000 !important;
+}
+
+.c-flash-table th {
+    border: 2px solid #000000 !important;
+}
+
+/* Estilos específicos para el contenido de las celdas */
+.c-flash-td span, .c-flash-th span {
+    color: #000000 !important;
+    font-weight: normal;
+}
+
+/* Forzar color negro en todo el contenido de la planilla */
+.c-flash-container * {
+    color: #000000 !important;
+}
+
+/* Encabezados en negrita */
+.c-flash-th {
+    background-color: #f2f2f2;
+    font-weight: bold !important;
+    border: 2px solid #000000 !important;
+    color: #000000 !important;
+}
+
+/* Bordes adicionales para mejorar la visibilidad */
+.c-flash-table tr {
+    border: 1px solid #000000; /* Bordes entre filas */
+}
+
+.c-flash-table td {
+    border: 1px solid #000000 !important; /* Forzar bordes negros en todas las celdas */
+}
+
+.c-flash-table th {
+    border: 2px solid #000000 !important; /* Bordes más gruesos en encabezados */
+}
+
